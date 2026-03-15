@@ -3,13 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<title>!G 실측보고서</title>
-<meta property="og:title" content="이견공간기획 | 실측보고서">
-<meta property="og:description" content="현장 실측보고서를 확인하세요">
+<title>!G 실측보고서 작성기</title>
+<meta property="og:title" content="!G 실측보고서 작성기">
+<meta property="og:description" content="현장체크를 쉽고 꼼꼼하게">
 <meta property="og:image" content="/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="!G 실측보고서 작성기">
+<meta name="twitter:description" content="현장체크를 쉽고 꼼꼼하게">
+<meta name="twitter:image" content="/og-image.png">
 <meta name="theme-color" content="#000000">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
@@ -231,7 +235,7 @@ async function saveReport(){
     });
 
     // Show share link
-    const shareUrl = `${location.origin}${location.pathname}?id=${reportId}`;
+    const shareUrl = `${location.origin}/report/${reportId}`;
     saving = false;
     showShareModal(shareUrl, reportId);
 
@@ -271,6 +275,58 @@ async function loadReport(id){
     console.error('Load error:', err);
     alert('보고서 불러오기 실패: ' + err.message);
   }
+}
+
+// ==================== Share Modal ====================
+// ==================== Photo Lightbox ====================
+function openLightbox(photos, startIdx){
+  let idx = startIdx || 0;
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;touch-action:pan-y';
+
+  function renderLB(){
+    ov.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;flex-shrink:0">
+        <div style="color:#999;font-size:14px">${idx+1} / ${photos.length}</div>
+        <button id="lbClose" style="background:none;border:none;color:#fff;font-size:28px;cursor:pointer;padding:4px;line-height:1">✕</button>
+      </div>
+      <div id="lbBody" style="flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;min-height:0">
+        ${photos.length>1&&idx>0?'<button id="lbPrev" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);z-index:2;width:44px;height:44px;border-radius:50%;border:none;background:rgba(255,255,255,0.15);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">‹</button>':''}
+        <img src="${photos[idx]}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;user-select:none">
+        ${photos.length>1&&idx<photos.length-1?'<button id="lbNext" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:2;width:44px;height:44px;border-radius:50%;border:none;background:rgba(255,255,255,0.15);color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">›</button>':''}
+      </div>
+      ${photos.length>1?`<div style="display:flex;justify-content:center;gap:6px;padding:12px 20px;flex-shrink:0">${photos.map((_,i)=>`<div style="width:${i===idx?'20':'6'}px;height:6px;border-radius:3px;background:${i===idx?'#fff':'#555'};transition:all .2s"></div>`).join('')}</div>`:''}`;
+
+    ov.querySelector('#lbClose').onclick = () => ov.remove();
+    const prev = ov.querySelector('#lbPrev');
+    const next = ov.querySelector('#lbNext');
+    if(prev) prev.onclick = e => { e.stopPropagation(); idx--; renderLB(); };
+    if(next) next.onclick = e => { e.stopPropagation(); idx++; renderLB(); };
+
+    // Swipe support
+    let sx=null,ex=null;
+    const body = ov.querySelector('#lbBody');
+    body.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;ex=null;},{passive:true});
+    body.addEventListener('touchmove',e=>{ex=e.touches[0].clientX;},{passive:true});
+    body.addEventListener('touchend',()=>{
+      if(sx!=null&&ex!=null){
+        const d=sx-ex;
+        if(Math.abs(d)>50){
+          if(d>0&&idx<photos.length-1){idx++;renderLB();}
+          else if(d<0&&idx>0){idx--;renderLB();}
+        }
+      }
+      sx=ex=null;
+    });
+    body.onclick = e => { if(e.target===body) ov.remove(); };
+  }
+
+  // Keyboard
+  const onKey = e => { if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',onKey);} else if(e.key==='ArrowRight'&&idx<photos.length-1){idx++;renderLB();} else if(e.key==='ArrowLeft'&&idx>0){idx--;renderLB();} };
+  document.addEventListener('keydown',onKey);
+
+  document.body.appendChild(ov);
+  renderLB();
 }
 
 // ==================== Share Modal ====================
@@ -506,16 +562,23 @@ function makePhotoGrid(wrap, label, photos, onAdd, onRemove, max=20){
   });
 
   if(photos.length<max){
-    const addBtn = h('button',{style:{aspectRatio:'1',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'24px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px'}});
-    addBtn.innerHTML = `<span style="font-size:28px">+</span><span style="font-size:10px;color:${T.text5}">${photos.length}/${max}</span>`;
-    const fileInput = h('input',{type:'file',accept:'image/*',capture:'environment',multiple:'true',style:{display:'none'}});
-    fileInput.onchange = e => {
-      Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});});
-      e.target.value='';
-    };
-    addBtn.onclick=()=>fileInput.click();
-    grid.appendChild(addBtn);
-    box.appendChild(fileInput);
+    // Camera button
+    const camBtn = h('button',{style:{aspectRatio:'1',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px'}});
+    camBtn.innerHTML = `<span style="font-size:24px">📷</span><span style="font-size:10px;color:${T.text5}">촬영</span>`;
+    const camInput = h('input',{type:'file',accept:'image/*',capture:'environment',multiple:'true',style:{display:'none'}});
+    camInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});}); e.target.value=''; };
+    camBtn.onclick=()=>camInput.click();
+    grid.appendChild(camBtn);
+    box.appendChild(camInput);
+
+    // Album button
+    const albBtn = h('button',{style:{aspectRatio:'1',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px'}});
+    albBtn.innerHTML = `<span style="font-size:24px">🖼️</span><span style="font-size:10px;color:${T.text5}">앨범 ${photos.length}/${max}</span>`;
+    const albInput = h('input',{type:'file',accept:'image/*',multiple:'true',style:{display:'none'}});
+    albInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});}); e.target.value=''; };
+    albBtn.onclick=()=>albInput.click();
+    grid.appendChild(albBtn);
+    box.appendChild(albInput);
   }
 
   box.appendChild(grid);
@@ -1187,10 +1250,10 @@ function renderStepMeasure(wrap){
 function renderReport(){
   const info = data.info;
   const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh'}});
-  const inner = h('div',{style:{maxWidth:'480px',margin:'0 auto',padding:'0 20px 40px'}});
+  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'0 20px 40px'}});
 
   // Header
-  const headerDiv = h('div',{style:{padding:'20px 0 24px',borderBottom:`1px solid ${T.border2}`,marginBottom:'24px'}});
+  const headerDiv = h('div',{style:{padding:'24px 0 28px',borderBottom:`1px solid ${T.border2}`,marginBottom:'28px'}});
 
   if(!viewMode){
     const backBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0',marginBottom:'12px'}},'← 편집으로 돌아가기');
@@ -1198,67 +1261,102 @@ function renderReport(){
     headerDiv.appendChild(backBtn);
   }
 
-  headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">이견공간기획 | 실측보고서(basic)</div>
-    <h1 style="font-size:22px;font-weight:700;margin:0;color:${T.text}">${info.siteName||'실측보고서'}</h1>
-    <div style="font-size:13px;color:${T.text3};margin-top:4px">${info.date} · ${info.manager||'담당자 미입력'}</div>`;
+  headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">이견공간기획 | 실측보고서(basic)</div>
+    <h1 style="font-size:24px;font-weight:700;margin:0;color:${T.text};line-height:1.3">${info.siteName||'실측보고서'}</h1>
+    <div style="font-size:14px;color:${T.text3};margin-top:6px">${info.date} · ${info.manager||'담당자 미입력'}</div>`;
   inner.appendChild(headerDiv);
 
-  const ss = {marginBottom:'28px'};
-  const st = {fontSize:'14px',fontWeight:'700',color:T.text,marginBottom:'12px',paddingBottom:'6px',borderBottom:`1px solid ${T.border2}`};
+  // Section styles - card style for readability
+  const secStyle = {marginBottom:'32px',padding:'20px',borderRadius:'14px',background:T.cardBg,border:`1px solid ${T.cardBorder}`};
+  const secTitle = (num, text) => {
+    const el = h('div',{style:{fontSize:'15px',fontWeight:'700',color:T.text,marginBottom:'16px',paddingBottom:'10px',borderBottom:`1px solid ${T.border2}`,display:'flex',alignItems:'center',gap:'8px'}});
+    if(num) el.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:${T.accent};color:${T.accentText};font-size:11px;font-weight:700;flex-shrink:0">${num}</span> ${text}`;
+    else el.textContent = text;
+    return el;
+  };
 
-  function makeRow(label,value,photos){
-    const row = h('div',{});
-    row.innerHTML = `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px"><span style="color:${T.text2}">${label}</span><span style="color:${T.text};text-align:right;max-width:60%;word-break:break-word">${value||'—'}</span></div>`;
+  // Row helper - improved readability
+  function makeRow(label,value,photos,allPhotos){
+    const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
+    row.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">${label}</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:${value&&value!=='—'?'500':'400'}">${value||'—'}</div>`;
     if(photos?.length){
-      const pg = h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px',marginTop:'2px'}});
-      photos.forEach(p=>{pg.innerHTML+=`<img src="${p}" style="width:48px;height:48px;object-fit:cover;border-radius:6px">`;});
+      const pg = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}});
+      photos.forEach((p,i)=>{
+        const img = h('div',{style:{width:'64px',height:'64px',borderRadius:'8px',overflow:'hidden',background:T.bg4,cursor:'pointer',flexShrink:'0'}});
+        img.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
+        img.onclick=()=>openLightbox(allPhotos||photos, allPhotos?allPhotos.indexOf(p):i);
+        pg.appendChild(img);
+      });
       row.appendChild(pg);
     }
     return row;
   }
 
+  // Photo grid for report - larger, clickable
   function makePhotos(photos,label){
     if(!photos?.length) return document.createTextNode('');
-    const box = h('div',{style:{marginBottom:'12px'}});
-    box.innerHTML = `<div style="font-size:12px;color:${T.text5};margin-bottom:6px">${label} (${photos.length}장)</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${photos.map(p=>`<img src="${p}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px">`).join('')}</div>`;
+    const box = h('div',{style:{marginBottom:'16px'}});
+    box.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'8px',fontWeight:'600',letterSpacing:'0.5px'}},`${label} (${photos.length}장)`));
+    const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}});
+    photos.forEach((p,i)=>{
+      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer'}});
+      cell.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
+      cell.onclick=()=>openLightbox(photos,i);
+      grid.appendChild(cell);
+    });
+    box.appendChild(grid);
     return box;
   }
 
-  // Info section
-  const infoSec = h('div',{style:ss});
-  infoSec.appendChild(h('div',{style:st},'기초 정보'));
+  // Map link helper
+  function makeMapLink(address){
+    if(!address) return '';
+    const encoded = encodeURIComponent(address);
+    return `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><a href="https://map.naver.com/v5/search/${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">🗺️ 네이버 지도</a><a href="https://map.kakao.com/?q=${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">📍 카카오맵</a></div>`;
+  }
+
+  // Address row with map link
+  function makeAddressRow(label, address){
+    const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
+    row.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">${label}</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:500">${address||'—'}</div>`;
+    if(address) row.innerHTML += makeMapLink(address);
+    return row;
+  }
+
+  // === Info section ===
+  const infoSec = h('div',{style:secStyle});
+  infoSec.appendChild(secTitle('','기초 정보'));
   infoSec.appendChild(makeRow('실측날짜',info.date));
   infoSec.appendChild(makeRow('현장명',info.siteName));
-  infoSec.appendChild(makeRow('현장주소',info.address));
+  infoSec.appendChild(makeAddressRow('현장주소',info.address));
   infoSec.appendChild(makeRow('실측담당',info.manager));
   inner.appendChild(infoSec);
 
-  // Photos section
-  const photoSec = h('div',{style:ss});
-  photoSec.appendChild(h('div',{style:st},'1. 현장사진'));
+  // === Photos section ===
+  const photoSec = h('div',{style:secStyle});
+  photoSec.appendChild(secTitle('1','현장사진'));
   photoSec.appendChild(makePhotos(data.photos.exterior,'외부'));
   photoSec.appendChild(makePhotos(data.photos.interior,'내부'));
   if(data.photos.video){
     const m = data.photos.video.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
     if(m){
-      const vd = h('div',{style:{marginTop:'8px'}});
-      vd.innerHTML = `<div style="font-size:12px;color:${T.text5};margin-bottom:6px">동영상</div><div style="border-radius:8px;overflow:hidden;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${m[1]}" style="width:100%;height:100%;border:none" allowfullscreen></iframe></div>`;
+      const vd = h('div',{style:{marginTop:'12px'}});
+      vd.innerHTML = `<div style="font-size:12px;color:${T.text5};margin-bottom:8px;font-weight:600">동영상</div><div style="border-radius:10px;overflow:hidden;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${m[1]}" style="width:100%;height:100%;border:none" allowfullscreen></iframe></div>`;
       photoSec.appendChild(vd);
     }
   }
   inner.appendChild(photoSec);
 
-  // Fire
-  const fireSec = h('div',{style:ss});
-  fireSec.appendChild(h('div',{style:st},'2. 소방완비 대상여부'));
+  // === Fire ===
+  const fireSec = h('div',{style:secStyle});
+  fireSec.appendChild(secTitle('2','소방완비 대상여부'));
   fireSec.appendChild(makeRow('완비대상 여부',data.fire.compliance));
   fireSec.appendChild(makeRow('스프링클러 여부',data.fire.sprinkler));
   const fireNotes = [...(data.fire.notesTags||[]),data.fire.notesCustom].filter(Boolean).join(', ');
   fireSec.appendChild(makeRow('기타 특이사항',fireNotes));
   inner.appendChild(fireSec);
 
-  // Sketch + facility pins
+  // === Sketch + facility pins ===
   const sketchPinTypes = new Set((data.sketch.pins||[]).map(p=>p.type));
   const facPinDefs = [
     {pin:data.facility.waterMeterPin,emoji:'💧',label:'수도계량기',type:'water'},
@@ -1271,27 +1369,25 @@ function renderReport(){
   const facPins = facPinDefs.filter(p=>p.pin&&!sketchPinTypes.has(p.type));
 
   if(data.sketch.drawing || (data.sketch.pins||[]).length>0 || (data.sketch.doors||[]).length>0 || facPins.length>0){
-    const skSec = h('div',{style:ss});
-    skSec.appendChild(h('div',{style:st},'설비 배치도'));
+    const skSec = h('div',{style:secStyle});
+    const skTitle = secTitle('','설비 요약 배치도');
+    skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
+    skSec.appendChild(skTitle);
     if(data.sketch.drawing){
-      const imgWrap = h('div',{style:{position:'relative',borderRadius:'8px',overflow:'hidden',marginBottom:'12px'}});
+      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px'}});
       imgWrap.innerHTML = `<img src="${data.sketch.drawing}" style="width:100%;display:block">`;
-      // Doors
       (data.sketch.doors||[]).forEach(dr=>{
         imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600">출입구</div></div>`;
       });
-      // Sketch pins
       (data.sketch.pins||[]).forEach(pin=>{
         const pt=PIN_TYPES.find(p=>p.id===pin.type);
         imgWrap.innerHTML += `<div style="position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${pt?.label||''}</div></div>`;
       });
-      // Facility pins
       facPins.forEach(fp=>{
         imgWrap.innerHTML += `<div style="position:absolute;left:${fp.pin.x}%;top:${fp.pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${fp.emoji}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${fp.label}</div></div>`;
       });
       skSec.appendChild(imgWrap);
     }
-    // Pin notes
     (data.sketch.pins||[]).filter(p=>p.note).forEach(pin=>{
       const pt=PIN_TYPES.find(p=>p.id===pin.type);
       skSec.appendChild(makeRow(`${pt?.emoji} ${pt?.label}`,pin.note));
@@ -1299,9 +1395,9 @@ function renderReport(){
     inner.appendChild(skSec);
   }
 
-  // Facility
-  const facSec = h('div',{style:ss});
-  facSec.appendChild(h('div',{style:st},'3. 기초설비 관련'));
+  // === Facility ===
+  const facSec = h('div',{style:secStyle});
+  facSec.appendChild(secTitle('3','기초설비 관련'));
   facSec.appendChild(makeRow('수도계량기 위치',data.facility.waterMeter,data.facility.waterMeterPhotos));
   facSec.appendChild(makeRow('급수 위치',data.facility.waterSupply,data.facility.waterSupplyPhotos));
   facSec.appendChild(makeRow('배수 위치, 관경',data.facility.drainage,data.facility.drainagePhotos));
@@ -1312,21 +1408,24 @@ function renderReport(){
   facSec.appendChild(makeRow('기타 특이사항',data.facility.notes,data.facility.notesPhotos));
   inner.appendChild(facSec);
 
-  // Electric
-  const elecSec = h('div',{style:ss});
-  elecSec.appendChild(h('div',{style:st},'4. 전기, 냉난방'));
+  // === Electric ===
+  const elecSec = h('div',{style:secStyle});
+  elecSec.appendChild(secTitle('4','전기, 냉난방'));
   const panelVal = (data.electric.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.includes('A')).join(' + ');
   elecSec.appendChild(makeRow('분전함/계량기',panelVal,data.electric.panelPhotos));
   elecSec.appendChild(makeRow('냉난방기/실외기',data.electric.hvac,data.electric.hvacPhotos));
   elecSec.appendChild(makeRow('기타 특이사항',data.electric.notes,data.electric.notesPhotos));
   inner.appendChild(elecSec);
 
-  // Construction
-  const conSec = h('div',{style:ss});
-  conSec.appendChild(h('div',{style:st},'5. 공사관련 체크사항'));
+  // === Construction ===
+  const conSec = h('div',{style:secStyle});
+  conSec.appendChild(secTitle('5','공사관련 체크사항'));
   conSec.appendChild(makeRow('주차관리',data.construction.parking,data.construction.parkingPhotos));
   if(data.construction.nearbyParkingAddr||data.construction.nearbyParkingRate){
-    conSec.appendChild(makeRow('근처 주차장',`${data.construction.nearbyParkingAddr||'—'} / 일 ${data.construction.nearbyParkingRate||'—'}원`));
+    const parkRow = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
+    parkRow.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">근처 주차장</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:500">${data.construction.nearbyParkingAddr||'—'} / 일 ${data.construction.nearbyParkingRate||'—'}원</div>`;
+    if(data.construction.nearbyParkingAddr) parkRow.innerHTML += makeMapLink(data.construction.nearbyParkingAddr);
+    conSec.appendChild(parkRow);
   }
   conSec.appendChild(makeRow('자재입고 동선',data.construction.materialRoute,data.construction.materialRoutePhotos));
   conSec.appendChild(makeRow('계단/E/V',data.construction.stairElevator,data.construction.stairElevatorPhotos));
@@ -1334,17 +1433,17 @@ function renderReport(){
   conSec.appendChild(makeRow('기타 특이사항',data.construction.notes,data.construction.notesPhotos));
   inner.appendChild(conSec);
 
-  // Etc
-  const etcSec = h('div',{style:ss});
-  etcSec.appendChild(h('div',{style:st},'6. 기타'));
+  // === Etc ===
+  const etcSec = h('div',{style:secStyle});
+  etcSec.appendChild(secTitle('6','기타'));
   etcSec.appendChild(makeRow('불법건축물',data.etc.illegalBuilding,data.etc.illegalBuildingPhotos));
   etcSec.appendChild(makeRow('건물 누수',data.etc.leak,data.etc.leakPhotos));
   etcSec.appendChild(makeRow('기타',data.etc.notes,data.etc.notesPhotos));
   inner.appendChild(etcSec);
 
-  // Measure
-  const mSec = h('div',{style:ss});
-  mSec.appendChild(h('div',{style:st},'7. 실측도'));
+  // === Measure ===
+  const mSec = h('div',{style:secStyle});
+  mSec.appendChild(secTitle('7','실측도'));
   mSec.appendChild(makeRow('천장고(슬라브)',data.measure.ceilingSlab?data.measure.ceilingSlab+'mm':''));
   mSec.appendChild(makeRow('천장고(하리)',data.measure.ceilingBeam?data.measure.ceilingBeam+'mm':''));
   mSec.appendChild(makeRow('천장고(천장마감)',data.measure.ceilingFinish?data.measure.ceilingFinish+'mm':''));
@@ -1353,7 +1452,7 @@ function renderReport(){
   inner.appendChild(mSec);
 
   // Footer
-  const footer = h('div',{style:{textAlign:'center',padding:'20px 0',borderTop:`1px solid ${T.border2}`,marginTop:'20px'}});
+  const footer = h('div',{style:{textAlign:'center',padding:'24px 0',marginTop:'8px'}});
   footer.innerHTML = `<div style="font-size:11px;color:${T.text4};letter-spacing:1px">iggg studio</div>`;
   inner.appendChild(footer);
 
