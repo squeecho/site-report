@@ -1593,17 +1593,17 @@ function renderReport(){
     skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
     skSec.appendChild(skTitle);
     if(data.sketch.drawing){
-      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px'}});
+      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#000'}});
       imgWrap.innerHTML = `<img src="${data.sketch.drawing}" style="width:100%;display:block">`;
       (data.sketch.doors||[]).forEach(dr=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600">출입구</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600">출입구</div></div>`;
       });
       (data.sketch.pins||[]).forEach(pin=>{
         const pt=PIN_TYPES.find(p=>p.id===pin.type);
-        imgWrap.innerHTML += `<div style="position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${pt?.label||''}</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${pt?.label||''}</div></div>`;
       });
       facPins.forEach(fp=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${fp.pin.x}%;top:${fp.pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${fp.emoji}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${fp.label}</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${fp.pin.x}%;top:${fp.pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${fp.emoji}</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${fp.label}</div></div>`;
       });
       skSec.appendChild(imgWrap);
     }
