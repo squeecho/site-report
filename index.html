@@ -1205,20 +1205,24 @@ function renderStepSketch(wrap){
       const WALL_WIDTH = 6;
       const walls = d2.walls||[];
 
-      const drawContent = () => {
+      const drawContent = (saveSnapshot) => {
         ctx.strokeStyle = T.text;
         ctx.lineWidth = WALL_WIDTH;
         ctx.lineCap = 'round';
         walls.forEach(wall=>{ctx.beginPath();ctx.moveTo(wall.x1,wall.y1);ctx.lineTo(wall.x2,wall.y2);ctx.stroke();});
 
+        // Save snapshot BEFORE drawing preview
+        if(saveSnapshot && (!d2.drawing || d2.drawing.startsWith('data:'))){
+          d2.drawing = canvas.toDataURL();
+        }
+
+        // Preview line (never saved)
         if(sketchWallStart && sketchPreviewEnd && sketchTool==='wall'){
           ctx.strokeStyle=T.text;ctx.lineWidth=WALL_WIDTH;ctx.globalAlpha=0.4;
           ctx.setLineDash([8,6]);ctx.beginPath();ctx.moveTo(sketchWallStart.x,sketchWallStart.y);ctx.lineTo(sketchPreviewEnd.x,sketchPreviewEnd.y);ctx.stroke();
           ctx.setLineDash([]);ctx.globalAlpha=1;
           ctx.beginPath();ctx.arc(sketchWallStart.x,sketchWallStart.y,5,0,Math.PI*2);ctx.fillStyle=T.accent;ctx.fill();
         }
-        // Save snapshot
-        d2.drawing = canvas.toDataURL();
       };
 
       if(d2.mode==='photo' && d2.bgPhoto){
@@ -1227,7 +1231,7 @@ function renderStepSketch(wrap){
           const s = Math.min(w/img.width,cH/img.height);
           const iw=img.width*s,ih=img.height*s;
           ctx.drawImage(img,(w-iw)/2,(cH-ih)/2,iw,ih);
-          drawContent();
+          drawContent(true);
         };
         img.src = d2.bgPhoto;
       } else {
@@ -1235,7 +1239,7 @@ function renderStepSketch(wrap){
         ctx.strokeStyle=T.canvasGrid;ctx.lineWidth=0.5;
         for(let x=0;x<=w;x+=GRID){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cH);ctx.stroke();}
         for(let y=0;y<=cH;y+=GRID){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
-        drawContent();
+        drawContent(true);
       }
 
       // Door overlays
@@ -1243,7 +1247,7 @@ function renderStepSketch(wrap){
         const el = document.createElement('div');
         el.style.cssText = `position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);font-size:22px;pointer-events:${sketchTool==='eraser'?'auto':'none'};filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));cursor:${sketchTool==='eraser'?'pointer':'default'};opacity:${sketchTool==='eraser'?'0.7':'1'};animation:${sketchTool==='eraser'?'shake .5s infinite':'none'}`;
         el.textContent='🚪';
-        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();const removed=dr;d2.doors=d2.doors.filter(d3=>d3.id!==dr.id);sketchActionHistory.push({type:'eraseDoor',data:removed});render();};
+        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();markSketchDirty();const removed=dr;d2.doors=d2.doors.filter(d3=>d3.id!==dr.id);sketchActionHistory.push({type:'eraseDoor',data:removed});render();};
         canvasWrap.appendChild(el);
       });
 
@@ -1253,7 +1257,7 @@ function renderStepSketch(wrap){
         const el = document.createElement('div');
         el.style.cssText = `position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:${sketchTool==='eraser'?'auto':'none'};cursor:${sketchTool==='eraser'?'pointer':'default'};opacity:${sketchTool==='eraser'?'0.7':'1'};animation:${sketchTool==='eraser'?'shake .5s infinite':'none'}`;
         el.innerHTML = `<div style="width:32px;height:32px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap">${pt?.label||''}</div>`;
-        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();const removed=pin;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);sketchActionHistory.push({type:'erasePin',data:removed,pinType:pin.type});render();};
+        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();markSketchDirty();const removed=pin;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);sketchActionHistory.push({type:'erasePin',data:removed,pinType:pin.type});render();};
         canvasWrap.appendChild(el);
       });
 
@@ -1289,7 +1293,10 @@ function renderStepSketch(wrap){
         tapStartPos = getPos(e);
       });
 
+      const markSketchDirty = () => { if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null; };
+
       const doTap = (raw) => {
+        markSketchDirty();
         if(sketchTool==='wall'){
           const pt = {x:snap(raw.x),y:snap(raw.y)};
           if(!sketchWallStart){sketchWallStart=pt;}
@@ -1388,6 +1395,7 @@ function renderStepSketch(wrap){
     const undoBtn = h('button',{style:{padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text2,fontSize:'12px',cursor:'pointer'}},'↩ 되돌리기');
     undoBtn.onclick=()=>{
       if(!sketchActionHistory.length) return;
+      if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
       const last = sketchActionHistory.pop();
       // Undo add actions
       if(last.type==='addWall') d2.walls=(d2.walls||[]).slice(0,-1);
@@ -1449,7 +1457,7 @@ function renderStepSketch(wrap){
         inp.oninput=e=>{pin.note=e.target.value;};
         row.appendChild(inp);
         const rmBtn = h('button',{style:{width:'24px',height:'24px',borderRadius:'6px',border:'none',background:T.border3,color:T.text2,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}},'✕');
-        rmBtn.onclick=()=>{const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);render();};
+        rmBtn.onclick=()=>{if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);render();};
         row.appendChild(rmBtn);
         pinsList.appendChild(row);
       });
@@ -1712,7 +1720,6 @@ function renderReport(){
   infoSec.appendChild(makeRow('실측날짜',info.date));
   infoSec.appendChild(makeRow('현장명',info.siteName));
   infoSec.appendChild(makeAddressRow('현장주소',info.address));
-  infoSec.appendChild(makeRow('실측담당',info.manager));
   inner.appendChild(infoSec);
 
   // === Photos section ===
