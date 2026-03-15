@@ -6,14 +6,14 @@
 <title>!G 실측보고서 작성기</title>
 <meta property="og:title" content="!G 실측보고서 작성기">
 <meta property="og:description" content="현장체크를 쉽고 꼼꼼하게">
-<meta property="og:image" content="/og-image.png">
+<meta property="og:image" content="https://site-report-smoky.vercel.app/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="!G 실측보고서 작성기">
 <meta name="twitter:description" content="현장체크를 쉽고 꼼꼼하게">
-<meta name="twitter:image" content="/og-image.png">
+<meta name="twitter:image" content="https://site-report-smoky.vercel.app/og-image.png">
 <meta name="theme-color" content="#000000">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
@@ -89,6 +89,9 @@ let step = 0;
 let showReport = false;
 let saving = false;
 let viewMode = false; // true when viewing shared report
+let currentView = 'home'; // 'home' | 'wizard' | 'report'
+let editingId = null; // report ID when editing existing
+let reportsList = null; // cached list
 let data = makeInitialData();
 
 function makeInitialData(){
@@ -98,7 +101,7 @@ function makeInitialData(){
     fire:{compliance:"",sprinkler:"",notesTags:[],notesCustom:""},
     sketch:{mode:"draw",bgPhoto:null,drawing:null,walls:[],doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
-    electric:{panelEntries:[{phase:"단상",amps:""}],panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
+    electric:{panelEntries:[{phase:"삼상",amps:""}],panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
     construction:{parking:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
     etc:{illegalBuilding:"",illegalBuildingPhotos:[],leak:"",leakPhotos:[],notes:"",notesPhotos:[]},
     measure:{ceilingSlab:"",ceilingBeam:"",ceilingFinish:"",area:"",floorPlan:[]}
@@ -170,13 +173,25 @@ async function saveReport(){
       }
     };
 
-    // Create doc first to get ID
-    const docRef = await db.collection('reports').add({
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      info: data.info,
-      status: 'uploading'
-    });
-    const reportId = docRef.id;
+    // Create new or use existing doc
+    let reportId;
+    let docRef;
+    if(editingId){
+      reportId = editingId;
+      docRef = db.collection('reports').doc(editingId);
+      await docRef.update({
+        info: data.info,
+        status: 'uploading',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      docRef = await db.collection('reports').add({
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        info: data.info,
+        status: 'uploading'
+      });
+      reportId = docRef.id;
+    }
 
     // Deep clone data for upload
     const uploadData = JSON.parse(JSON.stringify(data));
@@ -237,6 +252,10 @@ async function saveReport(){
     // Show share link
     const shareUrl = `${location.origin}/report/${reportId}`;
     saving = false;
+    editingId = reportId;
+    reportsList = null; // refresh list next time
+    // Update local data with uploaded URLs to avoid re-upload on next save
+    data = JSON.parse(JSON.stringify(uploadData));
     showShareModal(shareUrl, reportId);
 
   } catch(err){
@@ -284,6 +303,17 @@ function openLightbox(photos, startIdx){
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;touch-action:pan-y';
 
+  const closeLB = () => {
+    if(document.body.contains(ov)) ov.remove();
+    document.removeEventListener('keydown',onKey);
+    window.removeEventListener('popstate',onPop);
+  };
+
+  // Push history state so back button closes lightbox
+  history.pushState({lightbox:true},'');
+  const onPop = () => closeLB();
+  window.addEventListener('popstate',onPop);
+
   function renderLB(){
     ov.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;flex-shrink:0">
@@ -297,7 +327,7 @@ function openLightbox(photos, startIdx){
       </div>
       ${photos.length>1?`<div style="display:flex;justify-content:center;gap:6px;padding:12px 20px;flex-shrink:0">${photos.map((_,i)=>`<div style="width:${i===idx?'20':'6'}px;height:6px;border-radius:3px;background:${i===idx?'#fff':'#555'};transition:all .2s"></div>`).join('')}</div>`:''}`;
 
-    ov.querySelector('#lbClose').onclick = () => ov.remove();
+    ov.querySelector('#lbClose').onclick = () => { history.back(); };
     const prev = ov.querySelector('#lbPrev');
     const next = ov.querySelector('#lbNext');
     if(prev) prev.onclick = e => { e.stopPropagation(); idx--; renderLB(); };
@@ -318,11 +348,11 @@ function openLightbox(photos, startIdx){
       }
       sx=ex=null;
     });
-    body.onclick = e => { if(e.target===body) ov.remove(); };
+    body.onclick = e => { if(e.target===body) history.back(); };
   }
 
   // Keyboard
-  const onKey = e => { if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',onKey);} else if(e.key==='ArrowRight'&&idx<photos.length-1){idx++;renderLB();} else if(e.key==='ArrowLeft'&&idx>0){idx--;renderLB();} };
+  const onKey = e => { if(e.key==='Escape'){history.back();} else if(e.key==='ArrowRight'&&idx<photos.length-1){idx++;renderLB();} else if(e.key==='ArrowLeft'&&idx>0){idx--;renderLB();} };
   document.addEventListener('keydown',onKey);
 
   document.body.appendChild(ov);
@@ -369,7 +399,7 @@ function inputStyle(){
 const $app = document.getElementById('app');
 
 function render(){
-  // Check URL for report ID
+  // Check URL for report ID (shared link)
   const params = new URLSearchParams(location.search);
   const reportId = params.get('id');
 
@@ -382,10 +412,140 @@ function render(){
   $app.innerHTML = '';
   document.body.style.background = T.bg;
 
-  if(showReport){
+  if(viewMode && showReport){
+    $app.appendChild(renderReport());
+  } else if(currentView === 'home'){
+    $app.appendChild(renderHome());
+  } else if(showReport){
     $app.appendChild(renderReport());
   } else {
     $app.appendChild(renderWizard());
+  }
+}
+
+// ==================== Home Screen ====================
+function fetchReports(){
+  if(!db) { reportsList=[]; render(); return; }
+  db.collection('reports').orderBy('createdAt','desc').limit(50).get().then(snap=>{
+    reportsList = snap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(r=>r.status==='complete');
+    render();
+  }).catch(err=>{
+    console.error('Fetch error:',err);
+    reportsList=[];
+    render();
+  });
+}
+
+function renderHome(){
+  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh'}});
+  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'24px 20px 40px'}});
+
+  // Header
+  inner.innerHTML = `
+    <div style="margin-bottom:32px">
+      <div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">이견공간기획</div>
+      <h1 style="font-size:26px;font-weight:700;margin:0;color:${T.text}">실측보고서</h1>
+      <div style="font-size:14px;color:${T.text3};margin-top:4px">현장체크를 쉽고 꼼꼼하게</div>
+    </div>`;
+
+  // New report button
+  const newBtn = h('button',{style:{width:'100%',padding:'18px 20px',borderRadius:'14px',border:'none',background:T.accent,color:T.accentText,fontSize:'16px',fontWeight:'700',cursor:'pointer',marginBottom:'32px',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}});
+  newBtn.innerHTML = `<span style="font-size:20px">+</span> 새 보고서 작성`;
+  newBtn.onclick = () => {
+    data = makeInitialData();
+    editingId = null;
+    step = 0;
+    showReport = false;
+    currentView = 'wizard';
+    render();
+  };
+  inner.appendChild(newBtn);
+
+  // Reports list
+  const listHeader = h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}});
+  listHeader.innerHTML = `<div style="font-size:15px;font-weight:600;color:${T.text}">저장된 보고서</div>`;
+
+  if(reportsList===null){
+    // Loading
+    const refreshBtn = h('div',{style:{fontSize:'13px',color:T.text3}},'불러오는 중...');
+    listHeader.appendChild(refreshBtn);
+    inner.appendChild(listHeader);
+    fetchReports();
+  } else if(reportsList.length===0){
+    inner.appendChild(listHeader);
+    inner.appendChild(h('div',{style:{textAlign:'center',padding:'40px 0',color:T.text4,fontSize:'14px'}},'아직 저장된 보고서가 없습니다'));
+  } else {
+    const refreshBtn = h('button',{style:{background:'none',border:'none',color:T.text3,fontSize:'13px',cursor:'pointer',padding:'4px 8px'}});
+    refreshBtn.textContent = '새로고침';
+    refreshBtn.onclick = () => { reportsList=null; render(); };
+    listHeader.appendChild(refreshBtn);
+    inner.appendChild(listHeader);
+
+    const list = h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}});
+    reportsList.forEach(report=>{
+      const info = report.info || {};
+      const date = info.date || '';
+      const siteName = info.siteName || '이름 없음';
+      const manager = info.manager || '';
+      const photoCount = (report.photos?.exterior?.length||0) + (report.photos?.interior?.length||0);
+
+      const card = h('div',{style:{padding:'16px 18px',borderRadius:'14px',background:T.cardBg,border:`1px solid ${T.cardBorder}`,cursor:'pointer',transition:'transform .15s'}});
+
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:16px;font-weight:600;color:${T.text};margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${siteName}</div>
+            <div style="font-size:13px;color:${T.text3}">${date}${manager?' · '+manager:''}</div>
+            <div style="font-size:12px;color:${T.text4};margin-top:4px">📷 ${photoCount}장</div>
+          </div>
+          <div style="font-size:18px;color:${T.text4};flex-shrink:0;padding-top:2px">›</div>
+        </div>`;
+
+      card.onmouseenter = () => { card.style.transform='translateY(-1px)'; };
+      card.onmouseleave = () => { card.style.transform=''; };
+
+      card.onclick = () => {
+        // Load and view this report
+        $app.innerHTML = `<div style="min-height:100vh;background:${T.bg};display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px"><div style="width:32px;height:32px;border:3px solid ${T.border3};border-top-color:${T.accent};border-radius:50%;animation:spin 1s linear infinite"></div><div style="color:${T.text3};font-size:14px">불러오는 중...</div></div>`;
+        loadReportForEdit(report.id);
+      };
+
+      list.appendChild(card);
+    });
+    inner.appendChild(list);
+  }
+
+  container.appendChild(inner);
+  return container;
+}
+
+// Load report for viewing from home
+async function loadReportForEdit(id){
+  try {
+    const doc = await db.collection('reports').doc(id).get();
+    if(!doc.exists){ alert('보고서를 찾을 수 없습니다.'); currentView='home'; render(); return; }
+    const d = doc.data();
+    data = {
+      info: d.info || makeInitialData().info,
+      photos: d.photos || makeInitialData().photos,
+      fire: d.fire || makeInitialData().fire,
+      sketch: d.sketch || makeInitialData().sketch,
+      facility: d.facility || makeInitialData().facility,
+      electric: d.electric || makeInitialData().electric,
+      construction: d.construction || makeInitialData().construction,
+      etc: d.etc || makeInitialData().etc,
+      measure: d.measure || makeInitialData().measure,
+    };
+    editingId = id;
+    viewMode = false;
+    showReport = true;
+    currentView = 'report';
+    render();
+  } catch(err){
+    console.error('Load error:', err);
+    alert('불러오기 실패: '+err.message);
+    currentView='home';
+    render();
   }
 }
 
@@ -400,10 +560,18 @@ function renderWizard(){
   const header = h('div',{style:{padding:'16px 20px 0',position:'sticky',top:'0',zIndex:'10',background:T.bg}});
   header.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-      <div style="font-size:11px;color:${T.text3};letter-spacing:1.5px;text-transform:uppercase">!G 실측보고서 작성기</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="wizHome" style="background:none;border:none;color:${T.text3};font-size:18px;cursor:pointer;padding:0;line-height:1">‹</button>
+        <div style="font-size:11px;color:${T.text3};letter-spacing:1.5px;text-transform:uppercase">!G 실측보고서 작성기</div>
+      </div>
       <div style="font-size:12px;color:${T.text3}">${step+1} / ${STEPS.length}</div>
     </div>
     <div style="height:2px;background:${T.bg4};border-radius:1px;overflow:hidden"><div style="height:100%;width:${progress}%;background:${T.accent};transition:width .4s ease"></div></div>`;
+  header.querySelector('#wizHome').onclick = () => {
+    if(confirm('목록으로 돌아가시겠습니까? 저장하지 않은 내용은 사라집니다.')){
+      currentView='home'; showReport=false; render();
+    }
+  };
 
   // Dots
   const dots = h('div',{style:{display:'flex',gap:'4px',justifyContent:'center',padding:'14px 0 8px'}});
@@ -943,12 +1111,30 @@ function renderStepSketch(wrap){
       const getPos = e => {
         const rect = canvas.getBoundingClientRect();
         const touch = e.changedTouches?e.changedTouches[0]:(e.touches?e.touches[0]:e);
-        return {x:touch.clientX-rect.left, y:touch.clientY-rect.top};
+        const scaleX = canvas.width / (2 * rect.width);  // account for DPR
+        const scaleY = canvas.height / (2 * rect.height);
+        return {
+          x: (touch.clientX - rect.left),
+          y: (touch.clientY - rect.top),
+          xP: ((touch.clientX - rect.left) / rect.width) * 100,
+          yP: ((touch.clientY - rect.top) / rect.height) * 100
+        };
       };
 
-      const handleTap = e => {
+      let tapStartPos = null;
+      const handleTapStart = e => {
+        tapStartPos = getPos(e);
+      };
+
+      const handleTapEnd = e => {
+        if(!tapStartPos) return;
         e.preventDefault();
-        const raw = getPos(e);
+        const endPos = getPos(e);
+        // Use start position for accuracy (finger doesn't drift)
+        const raw = tapStartPos;
+        const dist = Math.sqrt((endPos.x-raw.x)**2 + (endPos.y-raw.y)**2);
+        tapStartPos = null;
+        if(dist > 20) return; // was a drag, not a tap
 
         if(sketchTool==='wall'){
           const pt = {x:snap(raw.x),y:snap(raw.y)};
@@ -964,20 +1150,14 @@ function renderStepSketch(wrap){
           render();
         }
         if(sketchTool==='door'){
-          const rect2 = canvas.getBoundingClientRect();
-          const touch = e.changedTouches?e.changedTouches[0]:e;
-          const xP=((touch.clientX-rect2.left)/rect2.width)*100;
-          const yP=((touch.clientY-rect2.top)/rect2.height)*100;
+          const xP=raw.xP, yP=raw.yP;
           const doorId=Date.now();
           d2.doors=[...(d2.doors||[]),{id:doorId,x:xP,y:yP}];
           sketchActionHistory.push({type:'door',id:doorId});
           render();
         }
         if(sketchTool==='pin'){
-          const rect2 = canvas.getBoundingClientRect();
-          const touch = e.changedTouches?e.changedTouches[0]:e;
-          const xP=((touch.clientX-rect2.left)/rect2.width)*100;
-          const yP=((touch.clientY-rect2.top)/rect2.height)*100;
+          const xP=raw.xP, yP=raw.yP;
           const pinId=Date.now();
           const newPin={id:pinId,type:sketchSelectedPin,x:xP,y:yP,note:''};
           d2.pins=[...(d2.pins||[]),newPin];
@@ -1016,9 +1196,11 @@ function renderStepSketch(wrap){
         }
       };
 
-      canvas.addEventListener('touchend',handleTap);
+      canvas.addEventListener('touchstart',handleTapStart,{passive:true});
+      canvas.addEventListener('touchend',handleTapEnd);
       canvas.addEventListener('touchmove',handleMove,{passive:false});
-      canvas.addEventListener('mouseup',handleTap);
+      canvas.addEventListener('mousedown',handleTapStart);
+      canvas.addEventListener('mouseup',handleTapEnd);
       canvas.addEventListener('mousemove',handleMove);
     });
 
@@ -1127,7 +1309,7 @@ function renderStepFacility(wrap){
 
 function renderStepElectric(wrap){
   const d2=data.electric;
-  const entries=d2.panelEntries||[{phase:'단상',amps:''}];
+  const entries=d2.panelEntries||[{phase:'삼상',amps:''}];
   const addP=k=>src=>{d2[k]=[...(d2[k]||[]),src];};
   const rmP=k=>i=>{d2[k]=(d2[k]||[]).filter((_,idx)=>idx!==i);};
 
@@ -1187,7 +1369,7 @@ function renderStepElectric(wrap){
 
   // Add entry button
   const addEntryBtn = h('button',{style:{width:'100%',padding:'10px 0',borderRadius:'8px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text5,fontSize:'13px',cursor:'pointer'}},'+ 추가');
-  addEntryBtn.onclick=()=>{d2.panelEntries=[...entries,{phase:'단상',amps:''}];render();};
+  addEntryBtn.onclick=()=>{d2.panelEntries=[...entries,{phase:'삼상',amps:''}];render();};
   pBox.appendChild(addEntryBtn);
 
   // Panel photos
@@ -1256,9 +1438,14 @@ function renderReport(){
   const headerDiv = h('div',{style:{padding:'24px 0 28px',borderBottom:`1px solid ${T.border2}`,marginBottom:'28px'}});
 
   if(!viewMode){
-    const backBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0',marginBottom:'12px'}},'← 편집으로 돌아가기');
-    backBtn.onclick=()=>{showReport=false;render();};
-    headerDiv.appendChild(backBtn);
+    const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'}});
+    const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
+    homeBtn.onclick=()=>{currentView='home';showReport=false;reportsList=null;render();};
+    const editBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'✏️ 편집');
+    editBtn.onclick=()=>{showReport=false;currentView='wizard';render();};
+    navRow.appendChild(homeBtn);
+    navRow.appendChild(editBtn);
+    headerDiv.appendChild(navRow);
   }
 
   headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">이견공간기획 | 실측보고서(basic)</div>
@@ -1277,6 +1464,8 @@ function renderReport(){
 
   // Row helper - improved readability
   function makeRow(label,value,photos,allPhotos){
+    // Hide completely empty rows (no value, no photos)
+    if((!value || value==='—' || value.trim()==='') && (!photos || !photos.length)) return document.createTextNode('');
     const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
     row.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">${label}</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:${value&&value!=='—'?'500':'400'}">${value||'—'}</div>`;
     if(photos?.length){
@@ -1460,7 +1649,7 @@ function renderReport(){
   if(!viewMode){
     const btnArea = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
     const backBtn2 = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'편집');
-    backBtn2.onclick=()=>{showReport=false;render();};
+    backBtn2.onclick=()=>{showReport=false;currentView='wizard';render();};
     btnArea.appendChild(backBtn2);
 
     const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}});
@@ -1478,12 +1667,7 @@ function renderReport(){
     container.appendChild(inner);
     container.appendChild(btnArea);
   } else {
-    // View mode: new report button
-    const newBtn = h('div',{style:{textAlign:'center',padding:'16px 0 40px'}});
-    const btn = h('button',{style:{padding:'14px 32px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'14px',cursor:'pointer'}},'새 보고서 작성');
-    btn.onclick=()=>{data=makeInitialData();viewMode=false;showReport=false;step=0;history.pushState(null,'',location.pathname);render();};
-    newBtn.appendChild(btn);
-    inner.appendChild(newBtn);
+    // View mode: just show report
     container.appendChild(inner);
   }
 
