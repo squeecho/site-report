@@ -442,7 +442,7 @@ function inputStyle(){
 // ==================== Render Engine ====================
 const $app = document.getElementById('app');
 
-function render(){
+function render(resetScroll){
   // Check URL for report ID (shared link)
   const params = new URLSearchParams(location.search);
   const reportId = params.get('id');
@@ -452,6 +452,11 @@ function render(){
     loadReport(reportId);
     return;
   }
+
+  // Save scroll position
+  var scrollEl = $app.firstElementChild;
+  var savedScroll = scrollEl ? scrollEl.scrollTop : 0;
+  if(resetScroll) savedScroll = 0;
 
   $app.innerHTML = '';
   document.body.style.background = T.bg;
@@ -474,6 +479,10 @@ function render(){
   } else {
     $app.appendChild(renderWizard());
   }
+
+  // Restore scroll position
+  var newScrollEl = $app.firstElementChild;
+  if(newScrollEl && savedScroll) newScrollEl.scrollTop = savedScroll;
 }
 
 // ==================== Lock Screen ====================
@@ -715,7 +724,7 @@ function renderWizard(){
   const dots = h('div',{style:{display:'flex',gap:'4px',justifyContent:'center',padding:'14px 0 8px'}});
   STEPS.forEach((s,i) => {
     const dot = h('button',{style:{width:i===step?'24px':'8px',height:'8px',borderRadius:'4px',border:'none',cursor:'pointer',background:i===step?T.accent:i<step?T.dotDone:T.dotInactive,transition:'all .3s ease'}});
-    dot.onclick = () => { step=i; render(); container.scrollTop=0; };
+    dot.onclick = () => { step=i; render(true); };
     dots.appendChild(dot);
   });
   header.appendChild(dots);
@@ -744,14 +753,14 @@ function renderWizard(){
   if(step>0){
     const prevBtn = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}});
     prevBtn.textContent='이전';
-    prevBtn.onclick=()=>{step--;render();container.scrollTop=0;};
+    prevBtn.onclick=()=>{step--;render(true);};
     nav.appendChild(prevBtn);
   }
 
   const nextBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer'}});
   nextBtn.textContent = step===STEPS.length-1 ? '보고서 미리보기' : '다음';
   nextBtn.onclick = () => {
-    if(step<STEPS.length-1){step++;render();container.scrollTop=0;}
+    if(step<STEPS.length-1){step++;render(true);}
     else{showReport=true;navigateTo('report');}
   };
   nav.appendChild(nextBtn);
@@ -762,7 +771,7 @@ function renderWizard(){
   if(currentStep.id!=='sketch'){
     container.addEventListener('touchstart',e=>{touchEnd=null;touchStart=e.targetTouches[0].clientX;},{passive:true});
     container.addEventListener('touchmove',e=>{touchEnd=e.targetTouches[0].clientX;},{passive:true});
-    container.addEventListener('touchend',()=>{if(!touchStart||!touchEnd)return;const d2=touchStart-touchEnd;if(Math.abs(d2)>50){if(d2>0&&step<STEPS.length-1){step++;render();}else if(d2<0&&step>0){step--;render();}}touchStart=touchEnd=null;});
+    container.addEventListener('touchend',()=>{if(!touchStart||!touchEnd)return;const d2=touchStart-touchEnd;if(Math.abs(d2)>50){if(d2>0&&step<STEPS.length-1){step++;render(true);}else if(d2<0&&step>0){step--;render(true);}}touchStart=touchEnd=null;});
   }
 
   return container;
@@ -1914,7 +1923,7 @@ function renderReport(){
 function navigateTo(view){
   currentView = view;
   history.pushState({view},'');
-  render();
+  render(true);
 }
 
 window.addEventListener('popstate', e => {
