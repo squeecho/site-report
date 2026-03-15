@@ -253,14 +253,16 @@ async function saveReport(){
     const shareUrl = `${location.origin}/report/${reportId}`;
     saving = false;
     editingId = reportId;
-    reportsList = null; // refresh list next time
+    reportsList = null;
     // Update local data with uploaded URLs to avoid re-upload on next save
     data = JSON.parse(JSON.stringify(uploadData));
+    render();
     showShareModal(shareUrl, reportId);
 
   } catch(err){
     console.error('Save error:', err);
     alert('저장 중 오류가 발생했습니다: ' + err.message);
+  } finally {
     saving = false;
     render();
   }
@@ -411,6 +413,13 @@ function render(){
 
   $app.innerHTML = '';
   document.body.style.background = T.bg;
+
+  // Dynamic tab title
+  if((viewMode && showReport) || (showReport && data.info.siteName)){
+    document.title = `${data.info.siteName || '실측보고서'} | 이견공간 실측보고서`;
+  } else {
+    document.title = '!G 실측보고서 작성기';
+  }
 
   if(viewMode && showReport){
     $app.appendChild(renderReport());
