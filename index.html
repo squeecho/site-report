@@ -89,6 +89,7 @@ const PIN_FACILITY_MAP={water:"waterMeterPin",supply:"waterSupplyPin",drain:"dra
 let step = 0;
 let showReport = false;
 let saving = false;
+let savingMsg = '저장 중...';
 let viewMode = false; // true when viewing shared report
 let currentView = 'home'; // 'home' | 'wizard' | 'report'
 let isUnlocked = false; // password gate for editing
@@ -105,7 +106,7 @@ function makeInitialData(){
     sketch:{mode:"draw",bgPhoto:null,drawing:null,walls:[],doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
     electric:{panelEntries:[{phase:"삼상",amps:""}],panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
-    construction:{parking:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
+    construction:{parking:"",parkingDetail:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
     etc:{illegalBuilding:"",illegalBuildingPhotos:[],leak:"",leakPhotos:[],notes:"",notesPhotos:[]},
     measure:{ceilingSlab:"",ceilingBeam:"",ceilingFinish:"",area:"",floorPlan:[]}
   };
@@ -120,7 +121,7 @@ let sketchActionHistory = [];
 let sketchCanvasSize = {w:0,h:0};
 
 // ==================== Image Compression ====================
-function compressImage(file, maxSize=1600, quality=0.8){
+function compressImage(file, maxSize=1200, quality=0.7){
   return new Promise(resolve=>{
     const reader = new FileReader();
     reader.onload = e => {
@@ -143,12 +144,19 @@ function compressImage(file, maxSize=1600, quality=0.8){
 }
 
 // ==================== Firebase Upload ====================
+let uploadTotal = 0, uploadDone = 0;
+
 async function uploadPhoto(dataUrl, reportId, idx){
   const resp = await fetch(dataUrl);
   const blob = await resp.blob();
   const path = `reports/${reportId}/photo_${idx}_${Date.now()}.jpg`;
   const ref = storage.ref(path);
   await ref.put(blob, {contentType:'image/jpeg'});
+  uploadDone++;
+  savingMsg = `사진 업로드 ${uploadDone}/${uploadTotal}`;
+  // Update button text without full re-render
+  const btn = document.querySelector('[data-save-btn]');
+  if(btn) btn.innerHTML = `<div style="width:18px;height:18px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
   return await ref.getDownloadURL();
 }
 
@@ -199,53 +207,76 @@ async function saveReport(){
     // Deep clone data for upload
     const uploadData = JSON.parse(JSON.stringify(data));
 
-    // Upload all photos
+    // Count total photos to upload for progress
+    const countDataUrls = arr => (arr||[]).filter(u=>typeof u==='string'&&u.startsWith('data:')).length;
+    uploadTotal = countDataUrls(data.photos.exterior) + countDataUrls(data.photos.interior)
+      + (data.sketch.drawing?.startsWith('data:')?1:0) + (data.sketch.bgPhoto?.startsWith('data:')?1:0)
+      + countDataUrls(data.measure.floorPlan);
+    for(const k of ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.facility[k]);
+    for(const k of ['panelPhotos','hvacPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.electric[k]);
+    for(const k of ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.construction[k]);
+    for(const k of ['illegalBuildingPhotos','leakPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.etc[k]);
+    uploadDone = 0;
+    savingMsg = uploadTotal > 0 ? `사진 업로드 0/${uploadTotal}` : '저장 중...';
+    render();
+
+    // Collect ALL photos that need uploading
     let photoIdx = 0;
-    const uploadArr = async (arr, label) => {
-      const urls = [];
-      for(const dataUrl of arr){
+    const uploadJobs = []; // {resolve, dataUrl}
+
+    const queueArr = (arr) => {
+      return arr.map(dataUrl => {
         if(dataUrl.startsWith('data:')){
-          const url = await uploadPhoto(dataUrl, reportId, photoIdx++);
-          urls.push(url);
-        } else {
-          urls.push(dataUrl); // already a URL
+          const idx = photoIdx++;
+          return new Promise(async (resolve) => {
+            const url = await uploadPhoto(dataUrl, reportId, idx);
+            resolve(url);
+          });
         }
-      }
-      return urls;
+        return Promise.resolve(dataUrl);
+      });
     };
 
-    // Photos
-    uploadData.photos.exterior = await uploadArr(data.photos.exterior, 'ext');
-    uploadData.photos.interior = await uploadArr(data.photos.interior, 'int');
+    // Queue all photo uploads
+    const extP = queueArr(data.photos.exterior);
+    const intP = queueArr(data.photos.interior);
+    const skDrawP = (data.sketch.drawing && data.sketch.drawing.startsWith('data:')) ? uploadPhoto(data.sketch.drawing, reportId, photoIdx++).then(u=>{uploadData.sketch.drawing=u;}) : null;
+    const skBgP = (data.sketch.bgPhoto && data.sketch.bgPhoto.startsWith('data:')) ? uploadPhoto(data.sketch.bgPhoto, reportId, photoIdx++).then(u=>{uploadData.sketch.bgPhoto=u;}) : null;
 
-    // Sketch drawing & bgPhoto
-    if(data.sketch.drawing && data.sketch.drawing.startsWith('data:')){
-      uploadData.sketch.drawing = await uploadPhoto(data.sketch.drawing, reportId, photoIdx++);
-    }
-    if(data.sketch.bgPhoto && data.sketch.bgPhoto.startsWith('data:')){
-      uploadData.sketch.bgPhoto = await uploadPhoto(data.sketch.bgPhoto, reportId, photoIdx++);
-    }
-
-    // Facility photos
+    const facJobs = {};
     for(const k of ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos']){
-      if(data.facility[k]?.length) uploadData.facility[k] = await uploadArr(data.facility[k], k);
+      if(data.facility[k]?.length) facJobs[k] = queueArr(data.facility[k]);
     }
-    // Electric photos
+    const elecJobs = {};
     for(const k of ['panelPhotos','hvacPhotos','notesPhotos']){
-      if(data.electric[k]?.length) uploadData.electric[k] = await uploadArr(data.electric[k], k);
+      if(data.electric[k]?.length) elecJobs[k] = queueArr(data.electric[k]);
     }
-    // Construction photos
+    const conJobs = {};
     for(const k of ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos']){
-      if(data.construction[k]?.length) uploadData.construction[k] = await uploadArr(data.construction[k], k);
+      if(data.construction[k]?.length) conJobs[k] = queueArr(data.construction[k]);
     }
-    // Etc photos
+    const etcJobs = {};
     for(const k of ['illegalBuildingPhotos','leakPhotos','notesPhotos']){
-      if(data.etc[k]?.length) uploadData.etc[k] = await uploadArr(data.etc[k], k);
+      if(data.etc[k]?.length) etcJobs[k] = queueArr(data.etc[k]);
     }
-    // Measure photos
-    if(data.measure.floorPlan?.length) uploadData.measure.floorPlan = await uploadArr(data.measure.floorPlan, 'fp');
+    const fpP = data.measure.floorPlan?.length ? queueArr(data.measure.floorPlan) : null;
+
+    // Execute ALL uploads in parallel
+    const [extUrls, intUrls] = await Promise.all([Promise.all(extP), Promise.all(intP)]);
+    uploadData.photos.exterior = extUrls;
+    uploadData.photos.interior = intUrls;
+    if(skDrawP) await skDrawP;
+    if(skBgP) await skBgP;
+    for(const [k,jobs] of Object.entries(facJobs)) uploadData.facility[k] = await Promise.all(jobs);
+    for(const [k,jobs] of Object.entries(elecJobs)) uploadData.electric[k] = await Promise.all(jobs);
+    for(const [k,jobs] of Object.entries(conJobs)) uploadData.construction[k] = await Promise.all(jobs);
+    for(const [k,jobs] of Object.entries(etcJobs)) uploadData.etc[k] = await Promise.all(jobs);
+    if(fpP) uploadData.measure.floorPlan = await Promise.all(fpP);
 
     // Save complete data - remove non-serializable fields
+    savingMsg = '데이터 저장 중...';
+    const btn2 = document.querySelector('[data-save-btn]');
+    if(btn2) btn2.innerHTML = `<div style="width:18px;height:18px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
     const saveData = {};
     for(const [key, val] of Object.entries(uploadData)){
       if(val !== undefined && val !== null) saveData[key] = val;
@@ -961,7 +992,11 @@ function makeAddressSearch(wrap, value, onChange, opts={}){
 
   const openSearch = () => {
     if(!window.daum?.Postcode){alert('주소 검색을 불러오는 중입니다.');return;}
-    new daum.Postcode({oncomplete:d2=>{onChange(d2.roadAddress||d2.jibunAddress);render();}}).open();
+    new daum.Postcode({oncomplete:d2=>{
+      let addr = d2.roadAddress || d2.jibunAddress;
+      if(d2.buildingName) addr += ' ' + d2.buildingName;
+      onChange(addr);render();
+    }}).open();
   };
 
   display.onclick = openSearch;
@@ -1523,7 +1558,28 @@ function renderStepConstruction(wrap){
   const addP=k=>src=>{d2[k]=[...(d2[k]||[]),src];};
   const rmP=k=>i=>{d2[k]=(d2[k]||[]).filter((_,idx)=>idx!==i);};
 
-  makeField(wrap,'공사 시, 주차관리',d2.parking,v=>{d2.parking=v;},{placeholder:'예: 일주차 5,000원',photos:d2.parkingPhotos,onAddPhoto:addP('parkingPhotos'),onRemovePhoto:rmP('parkingPhotos')});
+  // Parking with options + custom input
+  const parkBox = h('div',{style:{marginBottom:'16px'}});
+  parkBox.appendChild(h('div',{style:{fontSize:'13px',color:T.text2,marginBottom:'6px',fontWeight:'500'}},'공사 시, 주차관리'));
+  const parkChips = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}});
+  ['건물 주차 가능','건물 주차 불가능'].forEach(o=>{
+    const active = d2.parking===o;
+    const btn = h('button',{style:{padding:'8px 16px',borderRadius:'20px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'14px',cursor:'pointer',fontWeight:active?'600':'400'}},o);
+    btn.onclick=()=>{d2.parking=o;render();};
+    parkChips.appendChild(btn);
+  });
+  parkBox.appendChild(parkChips);
+  const parkInp = h('input',{type:'text',style:inputStyle(),placeholder:'주차 상세 (예: 일주차 5,000원)'});
+  parkInp.value = (d2.parking==='건물 주차 가능'||d2.parking==='건물 주차 불가능') ? (d2.parkingDetail||'') : (d2.parking||'');
+  parkInp.oninput = e => {
+    if(d2.parking==='건물 주차 가능'||d2.parking==='건물 주차 불가능') d2.parkingDetail=e.target.value;
+    else d2.parking=e.target.value;
+  };
+  parkBox.appendChild(parkInp);
+  const parkPhotoRow = h('div',{style:{display:'flex',gap:'6px',alignItems:'center',marginTop:'6px'}});
+  parkPhotoRow.appendChild(makeInlinePhotos(d2.parkingPhotos||[],addP('parkingPhotos'),rmP('parkingPhotos')));
+  parkBox.appendChild(parkPhotoRow);
+  wrap.appendChild(parkBox);
 
   // Nearby parking sub-card
   const parkCard = h('div',{style:{marginBottom:'16px',padding:'12px 14px',borderRadius:'10px',border:`1px solid ${T.cardBorder}`,background:T.bg3}});
@@ -1578,7 +1634,7 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'}});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{reportsList=null;history.back();};
+    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;currentView='home';history.pushState({view:'home'},'');render();};
     const editBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'✏️ 편집');
     editBtn.onclick=()=>{showReport=false;navigateTo('wizard');};
     navRow.appendChild(homeBtn);
@@ -1747,7 +1803,8 @@ function renderReport(){
   // === Construction ===
   const conSec = h('div',{style:secStyle});
   conSec.appendChild(secTitle('5','공사관련 체크사항'));
-  conSec.appendChild(makeRow('주차관리',data.construction.parking,data.construction.parkingPhotos));
+  const parkingDisplay = [data.construction.parking, data.construction.parkingDetail].filter(Boolean).join(' / ');
+  conSec.appendChild(makeRow('주차관리',parkingDisplay,data.construction.parkingPhotos));
   if(data.construction.nearbyParkingAddr||data.construction.nearbyParkingRate){
     const parkRow = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
     parkRow.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">근처 주차장</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:500">${data.construction.nearbyParkingAddr||'—'} / 일 ${data.construction.nearbyParkingRate||'—'}원</div>`;
@@ -1790,9 +1847,9 @@ function renderReport(){
     backBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
     btnArea.appendChild(backBtn2);
 
-    const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}});
+    const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
     if(saving){
-      saveBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> 저장 중...`;
+      saveBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
       saveBtn.style.opacity='0.7';
       saveBtn.style.pointerEvents='none';
     } else {
