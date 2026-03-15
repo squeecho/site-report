@@ -24,6 +24,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 input[type="number"]{-moz-appearance:textfield}
 ::-webkit-scrollbar{width:0;height:0}
 @keyframes shake{0%,100%{transform:translate(-50%,-50%) rotate(0deg)}25%{transform:translate(-50%,-50%) rotate(-2deg)}75%{transform:translate(-50%,-50%) rotate(2deg)}}
+@keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
@@ -90,6 +91,8 @@ let showReport = false;
 let saving = false;
 let viewMode = false; // true when viewing shared report
 let currentView = 'home'; // 'home' | 'wizard' | 'report'
+let isUnlocked = false; // password gate for editing
+const APP_PIN = '0404'; // ← 여기서 비밀번호 변경
 let editingId = null; // report ID when editing existing
 let reportsList = null; // cached list
 let data = makeInitialData();
@@ -423,6 +426,8 @@ function render(){
 
   if(viewMode && showReport){
     $app.appendChild(renderReport());
+  } else if(!isUnlocked){
+    $app.appendChild(renderLock());
   } else if(currentView === 'home'){
     $app.appendChild(renderHome());
   } else if(showReport){
@@ -430,6 +435,61 @@ function render(){
   } else {
     $app.appendChild(renderWizard());
   }
+}
+
+// ==================== Lock Screen ====================
+function renderLock(){
+  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",display:'flex',alignItems:'center',justifyContent:'center'}});
+  const box = h('div',{style:{width:'100%',maxWidth:'320px',padding:'0 20px',textAlign:'center'}});
+
+  box.innerHTML = `
+    <div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">이견공간기획</div>
+    <div style="font-size:22px;font-weight:700;color:${T.text};margin-bottom:32px">실측보고서 작성기</div>`;
+
+  // PIN dots display
+  const dotsDiv = h('div',{id:'pinDots',style:{display:'flex',justifyContent:'center',gap:'12px',marginBottom:'32px'}});
+  for(let i=0;i<4;i++){
+    dotsDiv.innerHTML += `<div style="width:14px;height:14px;border-radius:50%;border:2px solid ${T.border3};background:transparent"></div>`;
+  }
+  box.appendChild(dotsDiv);
+
+  // Numpad
+  let entered = '';
+  const updateDots = () => {
+    const dots = dotsDiv.querySelectorAll('div');
+    dots.forEach((d2,i) => {
+      d2.style.background = i < entered.length ? T.accent : 'transparent';
+      d2.style.borderColor = i < entered.length ? T.accent : T.border3;
+    });
+  };
+
+  const numpad = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',maxWidth:'240px',margin:'0 auto'}});
+  [1,2,3,4,5,6,7,8,9,null,0,'⌫'].forEach(n => {
+    if(n===null){ numpad.appendChild(h('div',{})); return; }
+    const btn = h('button',{style:{padding:'16px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text,fontSize:n==='⌫'?'18px':'20px',fontWeight:'600',cursor:'pointer',fontFamily:'inherit'}});
+    btn.textContent = n==='⌫' ? '⌫' : String(n);
+    btn.onclick = () => {
+      if(n==='⌫'){ entered=entered.slice(0,-1); updateDots(); return; }
+      if(entered.length>=4) return;
+      entered += String(n);
+      updateDots();
+      if(entered.length===4){
+        if(entered===APP_PIN){
+          isUnlocked=true;
+          render();
+        } else {
+          // Wrong PIN - shake & reset
+          dotsDiv.style.animation='pinShake .4s ease';
+          setTimeout(()=>{entered='';updateDots();dotsDiv.style.animation='';},500);
+        }
+      }
+    };
+    numpad.appendChild(btn);
+  });
+  box.appendChild(numpad);
+
+  container.appendChild(box);
+  return container;
 }
 
 // ==================== Home Screen ====================
