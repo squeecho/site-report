@@ -456,8 +456,7 @@ function renderHome(){
     editingId = null;
     step = 0;
     showReport = false;
-    currentView = 'wizard';
-    render();
+    navigateTo('wizard');
   };
   inner.appendChild(newBtn);
 
@@ -498,8 +497,19 @@ function renderHome(){
             <div style="font-size:13px;color:${T.text3}">${date}${manager?' · '+manager:''}</div>
             <div style="font-size:12px;color:${T.text4};margin-top:4px">📷 ${photoCount}장</div>
           </div>
-          <div style="font-size:18px;color:${T.text4};flex-shrink:0;padding-top:2px">›</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;padding-top:2px">
+            <button class="del-btn" style="width:32px;height:32px;border-radius:8px;border:1px solid ${T.border3};background:transparent;color:${T.text4};font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center">🗑</button>
+            <div style="font-size:18px;color:${T.text4}">›</div>
+          </div>
         </div>`;
+
+      // Delete button
+      card.querySelector('.del-btn').onclick = (e) => {
+        e.stopPropagation();
+        if(confirm(`"${siteName}" 보고서를 삭제하시겠습니까?\n사진 포함 완전히 삭제됩니다.`)){
+          deleteReport(report.id);
+        }
+      };
 
       card.onmouseenter = () => { card.style.transform='translateY(-1px)'; };
       card.onmouseleave = () => { card.style.transform=''; };
@@ -520,6 +530,27 @@ function renderHome(){
 }
 
 // Load report for viewing from home
+async function deleteReport(id){
+  try {
+    // Delete all photos in Storage under reports/{id}/
+    const storageRef = storage.ref(`reports/${id}`);
+    try {
+      const files = await storageRef.listAll();
+      await Promise.all(files.items.map(f => f.delete()));
+    } catch(e){ /* no files or folder, ok */ }
+
+    // Delete Firestore document
+    await db.collection('reports').doc(id).delete();
+
+    // Refresh list
+    reportsList = reportsList ? reportsList.filter(r=>r.id!==id) : null;
+    render();
+  } catch(err){
+    console.error('Delete error:', err);
+    alert('삭제 실패: '+err.message);
+  }
+}
+
 async function loadReportForEdit(id){
   try {
     const doc = await db.collection('reports').doc(id).get();
@@ -539,8 +570,7 @@ async function loadReportForEdit(id){
     editingId = id;
     viewMode = false;
     showReport = true;
-    currentView = 'report';
-    render();
+    navigateTo('report');
   } catch(err){
     console.error('Load error:', err);
     alert('불러오기 실패: '+err.message);
@@ -569,7 +599,7 @@ function renderWizard(){
     <div style="height:2px;background:${T.bg4};border-radius:1px;overflow:hidden"><div style="height:100%;width:${progress}%;background:${T.accent};transition:width .4s ease"></div></div>`;
   header.querySelector('#wizHome').onclick = () => {
     if(confirm('목록으로 돌아가시겠습니까? 저장하지 않은 내용은 사라집니다.')){
-      currentView='home'; showReport=false; render();
+      history.back();
     }
   };
 
@@ -614,7 +644,7 @@ function renderWizard(){
   nextBtn.textContent = step===STEPS.length-1 ? '보고서 미리보기' : '다음';
   nextBtn.onclick = () => {
     if(step<STEPS.length-1){step++;render();container.scrollTop=0;}
-    else{showReport=true;render();}
+    else{showReport=true;navigateTo('report');}
   };
   nav.appendChild(nextBtn);
   container.appendChild(nav);
@@ -1440,9 +1470,9 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'}});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{currentView='home';showReport=false;reportsList=null;render();};
+    homeBtn.onclick=()=>{reportsList=null;history.back();};
     const editBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'✏️ 편집');
-    editBtn.onclick=()=>{showReport=false;currentView='wizard';render();};
+    editBtn.onclick=()=>{showReport=false;navigateTo('wizard');};
     navRow.appendChild(homeBtn);
     navRow.appendChild(editBtn);
     headerDiv.appendChild(navRow);
@@ -1649,7 +1679,7 @@ function renderReport(){
   if(!viewMode){
     const btnArea = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
     const backBtn2 = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'편집');
-    backBtn2.onclick=()=>{showReport=false;currentView='wizard';render();};
+    backBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
     btnArea.appendChild(backBtn2);
 
     const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}});
@@ -1673,6 +1703,36 @@ function renderReport(){
 
   return container;
 }
+
+// ==================== History Navigation ====================
+function navigateTo(view){
+  currentView = view;
+  history.pushState({view},'');
+  render();
+}
+
+window.addEventListener('popstate', e => {
+  const state = e.state;
+  // Close lightbox if open
+  const lb = document.querySelector('[style*="z-index: 9999"], [style*="z-index:9999"]');
+  if(lb){ lb.remove(); return; }
+
+  if(state && state.view){
+    currentView = state.view;
+    if(state.view === 'home'){ showReport=false; viewMode=false; }
+    else if(state.view === 'wizard'){ showReport=false; }
+    else if(state.view === 'report'){ showReport=true; }
+    render();
+  } else {
+    currentView = 'home';
+    showReport = false;
+    viewMode = false;
+    render();
+  }
+});
+
+// Set initial state
+history.replaceState({view:'home'},'');
 
 // ==================== Init ====================
 render();
