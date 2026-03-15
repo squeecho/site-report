@@ -245,9 +245,18 @@ async function saveReport(){
     // Measure photos
     if(data.measure.floorPlan?.length) uploadData.measure.floorPlan = await uploadArr(data.measure.floorPlan, 'fp');
 
-    // Save complete data
+    // Save complete data - remove non-serializable fields
+    const saveData = {};
+    for(const [key, val] of Object.entries(uploadData)){
+      if(val !== undefined && val !== null) saveData[key] = val;
+    }
+    // Remove _custom flags from panel entries
+    if(saveData.electric?.panelEntries){
+      saveData.electric.panelEntries = saveData.electric.panelEntries.map(e => ({phase:e.phase,amps:e.amps}));
+    }
+
     await docRef.update({
-      ...uploadData,
+      ...saveData,
       status: 'complete',
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -264,10 +273,9 @@ async function saveReport(){
 
   } catch(err){
     console.error('Save error:', err);
-    alert('저장 중 오류가 발생했습니다: ' + err.message);
-  } finally {
     saving = false;
     render();
+    setTimeout(()=>alert('저장 중 오류가 발생했습니다:\n' + err.message), 100);
   }
 }
 
@@ -863,15 +871,24 @@ function makeInlinePhotos(photos, onAdd, onRemove){
     row.appendChild(cell);
   });
 
-  const addBtn = h('button',{style:{width:'56px',height:'56px',borderRadius:'8px',border:`1.5px dashed ${T.photoBtnBorder}`,background:'transparent',color:T.text3,fontSize:'18px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}},'📷');
-  const fileInput = h('input',{type:'file',accept:'image/*',capture:'environment',multiple:'true',style:{display:'none'}});
-  fileInput.onchange = e => {
-    Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});});
-    e.target.value='';
-  };
-  addBtn.onclick=()=>fileInput.click();
-  row.appendChild(addBtn);
-  row.appendChild(fileInput);
+  // Camera button
+  const camBtn = h('button',{style:{width:'56px',height:'56px',borderRadius:'8px',border:`1.5px dashed ${T.photoBtnBorder}`,background:'transparent',color:T.text3,fontSize:'16px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1px'}});
+  camBtn.innerHTML = `<span>📷</span><span style="font-size:8px">촬영</span>`;
+  const camInput = h('input',{type:'file',accept:'image/*',capture:'environment',multiple:'true',style:{display:'none'}});
+  camInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});}); e.target.value=''; };
+  camBtn.onclick=()=>camInput.click();
+  row.appendChild(camBtn);
+  row.appendChild(camInput);
+
+  // Album button
+  const albBtn = h('button',{style:{width:'56px',height:'56px',borderRadius:'8px',border:`1.5px dashed ${T.photoBtnBorder}`,background:'transparent',color:T.text3,fontSize:'16px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1px'}});
+  albBtn.innerHTML = `<span>🖼️</span><span style="font-size:8px">앨범</span>`;
+  const albInput = h('input',{type:'file',accept:'image/*',multiple:'true',style:{display:'none'}});
+  albInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{onAdd(src);render();});}); e.target.value=''; };
+  albBtn.onclick=()=>albInput.click();
+  row.appendChild(albBtn);
+  row.appendChild(albInput);
+
   return row;
 }
 
