@@ -1062,7 +1062,7 @@ function renderStepSketch(wrap){
     // Canvas container
     const canvasWrap = h('div',{style:{position:'relative',marginBottom:'12px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${T.border2}`,touchAction:'none'}});
     const canvas = document.createElement('canvas');
-    canvas.style.display = 'block';
+    canvas.style.cssText = 'display:block;touch-action:none;-webkit-touch-callout:none;user-select:none';
     canvasWrap.appendChild(canvas);
     wrap.appendChild(canvasWrap);
 
@@ -1122,7 +1122,7 @@ function renderStepSketch(wrap){
         const el = document.createElement('div');
         el.style.cssText = `position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);font-size:22px;pointer-events:${sketchTool==='eraser'?'auto':'none'};filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));cursor:${sketchTool==='eraser'?'pointer':'default'};opacity:${sketchTool==='eraser'?'0.7':'1'};animation:${sketchTool==='eraser'?'shake .5s infinite':'none'}`;
         el.textContent='🚪';
-        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();d2.doors=d2.doors.filter(d3=>d3.id!==dr.id);sketchActionHistory=sketchActionHistory.filter(a=>!(a.type==='door'&&a.id===dr.id));render();};
+        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();const removed=dr;d2.doors=d2.doors.filter(d3=>d3.id!==dr.id);sketchActionHistory.push({type:'eraseDoor',data:removed});render();};
         canvasWrap.appendChild(el);
       });
 
@@ -1132,47 +1132,50 @@ function renderStepSketch(wrap){
         const el = document.createElement('div');
         el.style.cssText = `position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:${sketchTool==='eraser'?'auto':'none'};cursor:${sketchTool==='eraser'?'pointer':'default'};opacity:${sketchTool==='eraser'?'0.7':'1'};animation:${sketchTool==='eraser'?'shake .5s infinite':'none'}`;
         el.innerHTML = `<div style="width:32px;height:32px;border-radius:50%;background:${T.pinBg};display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:${T.pinLabelText};background:${T.pinLabelBg};padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap">${pt?.label||''}</div>`;
-        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);sketchActionHistory=sketchActionHistory.filter(a=>!(a.type==='pin'&&a.id===pin.id));render();};
+        if(sketchTool==='eraser') el.onclick=e=>{e.stopPropagation();const removed=pin;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);sketchActionHistory.push({type:'erasePin',data:removed,pinType:pin.type});render();};
         canvasWrap.appendChild(el);
       });
 
       // Canvas interaction
-      const snap = v => Math.round(v/GRID)*GRID;
+      const GRID2 = GRID;
+      const snap = v => Math.round(v/GRID2)*GRID2;
+
       const getPos = e => {
         const rect = canvas.getBoundingClientRect();
         const touch = e.changedTouches?e.changedTouches[0]:(e.touches?e.touches[0]:e);
-        const scaleX = canvas.width / (2 * rect.width);  // account for DPR
-        const scaleY = canvas.height / (2 * rect.height);
+        // Account for visual viewport scaling (pinch zoom)
+        const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
+        const cssX = (touch.clientX - rect.left) * vvScale;
+        const cssY = (touch.clientY - rect.top) * vvScale;
+        // Also account for canvas display vs actual CSS size mismatch
+        const displayW = rect.width * vvScale;
+        const displayH = rect.height * vvScale;
+        const scaleX = w / displayW;
+        const scaleY = cH / displayH;
         return {
-          x: (touch.clientX - rect.left),
-          y: (touch.clientY - rect.top),
-          xP: ((touch.clientX - rect.left) / rect.width) * 100,
-          yP: ((touch.clientY - rect.top) / rect.height) * 100
+          x: cssX * scaleX,
+          y: cssY * scaleY,
+          xP: (cssX / displayW) * 100,
+          yP: (cssY / displayH) * 100
         };
       };
 
       let tapStartPos = null;
-      const handleTapStart = e => {
+      canvas.addEventListener('touchstart', e => {
         tapStartPos = getPos(e);
-      };
+      }, {passive:true});
+      canvas.addEventListener('mousedown', e => {
+        tapStartPos = getPos(e);
+      });
 
-      const handleTapEnd = e => {
-        if(!tapStartPos) return;
-        e.preventDefault();
-        const endPos = getPos(e);
-        // Use start position for accuracy (finger doesn't drift)
-        const raw = tapStartPos;
-        const dist = Math.sqrt((endPos.x-raw.x)**2 + (endPos.y-raw.y)**2);
-        tapStartPos = null;
-        if(dist > 20) return; // was a drag, not a tap
-
+      const doTap = (raw) => {
         if(sketchTool==='wall'){
           const pt = {x:snap(raw.x),y:snap(raw.y)};
           if(!sketchWallStart){sketchWallStart=pt;}
           else{
             if(pt.x!==sketchWallStart.x||pt.y!==sketchWallStart.y){
               d2.walls=[...(d2.walls||[]),{x1:sketchWallStart.x,y1:sketchWallStart.y,x2:pt.x,y2:pt.y}];
-              sketchActionHistory.push({type:'wall'});
+              sketchActionHistory.push({type:'addWall'});
             }
             sketchWallStart=pt;
           }
@@ -1180,27 +1183,41 @@ function renderStepSketch(wrap){
           render();
         }
         if(sketchTool==='door'){
-          const xP=raw.xP, yP=raw.yP;
           const doorId=Date.now();
-          d2.doors=[...(d2.doors||[]),{id:doorId,x:xP,y:yP}];
-          sketchActionHistory.push({type:'door',id:doorId});
+          d2.doors=[...(d2.doors||[]),{id:doorId,x:raw.xP,y:raw.yP}];
+          sketchActionHistory.push({type:'addDoor',id:doorId});
           render();
         }
         if(sketchTool==='pin'){
-          const xP=raw.xP, yP=raw.yP;
           const pinId=Date.now();
-          const newPin={id:pinId,type:sketchSelectedPin,x:xP,y:yP,note:''};
+          const newPin={id:pinId,type:sketchSelectedPin,x:raw.xP,y:raw.yP,note:''};
           d2.pins=[...(d2.pins||[]),newPin];
           const fk=PIN_FACILITY_MAP[sketchSelectedPin];
-          if(fk) data.facility[fk]={x:xP,y:yP};
-          sketchActionHistory.push({type:'pin',id:pinId,pinType:sketchSelectedPin});
+          if(fk) data.facility[fk]={x:raw.xP,y:raw.yP};
+          sketchActionHistory.push({type:'addPin',id:pinId,pinType:sketchSelectedPin});
           render();
         }
         if(sketchTool==='eraser'){
-          const ptToSeg=(px,py,x1,y1,x2,y2)=>{const dx=x2-x1,dy=y2-y1,lenSq=dx*dx+dy*dy;if(lenSq===0)return Math.sqrt((px-x1)**2+(py-y1)**2);let t2=((px-x1)*dx+(py-y1)*dy)/lenSq;t2=Math.max(0,Math.min(1,t2));return Math.sqrt((px-(x1+t2*dx))**2+(py-(y1+t2*dy))**2);};
+          const ptToSeg=(px,py,x1,y1,x2,y2)=>{const dx2=x2-x1,dy=y2-y1,lenSq=dx2*dx2+dy*dy;if(lenSq===0)return Math.sqrt((px-x1)**2+(py-y1)**2);let t2=((px-x1)*dx2+(py-y1)*dy)/lenSq;t2=Math.max(0,Math.min(1,t2));return Math.sqrt((px-(x1+t2*dx2))**2+(py-(y1+t2*dy))**2);};
           const bestW=(d2.walls||[]).reduce((acc,w2,i)=>{const dist=ptToSeg(raw.x,raw.y,w2.x1,w2.y1,w2.x2,w2.y2);return dist<acc.dist?{dist,idx:i}:acc;},{dist:50,idx:-1});
-          if(bestW.idx>=0){d2.walls=(d2.walls||[]).filter((_,i)=>i!==bestW.idx);for(let i=sketchActionHistory.length-1;i>=0;i--){if(sketchActionHistory[i].type==='wall'){sketchActionHistory.splice(i,1);break;}}render();}
+          if(bestW.idx>=0){
+            const removed = d2.walls[bestW.idx];
+            d2.walls=(d2.walls||[]).filter((_,i)=>i!==bestW.idx);
+            sketchActionHistory.push({type:'eraseWall',data:removed});
+            render();
+          }
         }
+      };
+
+      const handleTapEnd = e => {
+        if(!tapStartPos) return;
+        e.preventDefault();
+        const endPos = getPos(e);
+        const raw = tapStartPos;
+        const dist = Math.sqrt((endPos.x-raw.x)**2 + (endPos.y-raw.y)**2);
+        tapStartPos = null;
+        if(dist > 30) return; // drag, not tap
+        doTap(raw);
       };
 
       const handleMove = e => {
@@ -1208,28 +1225,28 @@ function renderStepSketch(wrap){
           e.preventDefault();
           const raw=getPos(e);
           sketchPreviewEnd={x:snap(raw.x),y:snap(raw.y)};
-          // Lightweight re-draw (just redraw canvas, no full render)
-          ctx.clearRect(0,0,w*dpr,cH*dpr);
-          ctx.save();ctx.scale(dpr,dpr);
+          // Redraw canvas without double-scaling
+          ctx.setTransform(dpr,0,0,dpr,0,0); // reset to base DPR scale
           if(d2.mode==='photo'&&d2.bgPhoto){
             const img2=new Image();img2.src=d2.bgPhoto;
-            const s=Math.min(w/img2.width,cH/img2.height);
-            ctx.drawImage(img2,(w-img2.width*s)/2,(cH-img2.height*s)/2,img2.width*s,img2.height*s);
+            if(img2.complete){
+              const s=Math.min(w/img2.width,cH/img2.height);
+              ctx.clearRect(0,0,w,cH);
+              ctx.drawImage(img2,(w-img2.width*s)/2,(cH-img2.height*s)/2,img2.width*s,img2.height*s);
+            }
           } else {
+            ctx.clearRect(0,0,w,cH);
             ctx.fillStyle=T.canvasBg;ctx.fillRect(0,0,w,cH);
             ctx.strokeStyle=T.canvasGrid;ctx.lineWidth=0.5;
-            for(let x=0;x<=w;x+=GRID){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cH);ctx.stroke();}
-            for(let y=0;y<=cH;y+=GRID){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+            for(let gx=0;gx<=w;gx+=GRID2){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,cH);ctx.stroke();}
+            for(let gy=0;gy<=cH;gy+=GRID2){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(w,gy);ctx.stroke();}
           }
           drawContent();
-          ctx.restore();
         }
       };
 
-      canvas.addEventListener('touchstart',handleTapStart,{passive:true});
       canvas.addEventListener('touchend',handleTapEnd);
       canvas.addEventListener('touchmove',handleMove,{passive:false});
-      canvas.addEventListener('mousedown',handleTapStart);
       canvas.addEventListener('mouseup',handleTapEnd);
       canvas.addEventListener('mousemove',handleMove);
     });
@@ -1251,9 +1268,14 @@ function renderStepSketch(wrap){
     undoBtn.onclick=()=>{
       if(!sketchActionHistory.length) return;
       const last = sketchActionHistory.pop();
-      if(last.type==='wall') d2.walls=(d2.walls||[]).slice(0,-1);
-      else if(last.type==='door') d2.doors=(d2.doors||[]).filter(dr=>dr.id!==last.id);
-      else if(last.type==='pin'){d2.pins=(d2.pins||[]).filter(p=>p.id!==last.id);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]=null;}
+      // Undo add actions
+      if(last.type==='addWall') d2.walls=(d2.walls||[]).slice(0,-1);
+      else if(last.type==='addDoor') d2.doors=(d2.doors||[]).filter(dr=>dr.id!==last.id);
+      else if(last.type==='addPin'){d2.pins=(d2.pins||[]).filter(p=>p.id!==last.id);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]=null;}
+      // Undo erase actions (restore deleted items)
+      else if(last.type==='eraseWall') d2.walls=[...(d2.walls||[]),last.data];
+      else if(last.type==='eraseDoor') d2.doors=[...(d2.doors||[]),last.data];
+      else if(last.type==='erasePin'){d2.pins=[...(d2.pins||[]),last.data];const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]={x:last.data.x,y:last.data.y};}
       render();
     };
     toolbar.appendChild(undoBtn);
