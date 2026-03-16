@@ -105,7 +105,7 @@ function makeInitialData(){
     fire:{compliance:"",sprinkler:"",notesTags:[],notesCustom:""},
     sketch:{mode:"draw",bgPhoto:null,drawing:null,polygon:null,walls:[],doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
-    electric:{panelEntries:[{phase:"삼상",amps:""}],panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
+    electric:{panelEntries:[{phase:"삼상",amps:""}],panelLocation:"",panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
     construction:{parking:"",parkingDetail:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
     etc:{illegalBuilding:"",illegalBuildingPhotos:[],leak:"",leakPhotos:[],notes:"",notesPhotos:[]},
     measure:{ceilingSlab:"",ceilingBeam:"",ceilingFinish:"",area:"",floorPlan:[]}
@@ -299,6 +299,7 @@ async function saveReport(){
     reportsList = null;
     // Update local data with uploaded URLs to avoid re-upload on next save
     data = JSON.parse(JSON.stringify(uploadData));
+    clearDraft();
     render();
     showShareModal(shareUrl, reportId);
 
@@ -573,9 +574,30 @@ function renderHome(){
     editingId = null;
     step = 0;
     showReport = false;
+    clearDraft();
     navigateTo('wizard');
   };
   inner.appendChild(newBtn);
+
+  // Draft resume
+  var draft = loadDraft();
+  if(draft && draft.data.info.siteName){
+    var draftCard = h('div',{style:{padding:'16px 18px',borderRadius:'14px',background:T.infoBg,border:'1px solid '+T.infoBorder,marginBottom:'24px',cursor:'pointer'}});
+    var mins = Math.round((Date.now()-draft.ts)/60000);
+    var timeStr = mins<60 ? mins+'분 전' : Math.round(mins/60)+'시간 전';
+    draftCard.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:14px;font-weight:600;color:'+T.text+';margin-bottom:4px">📝 작성 중인 보고서</div><div style="font-size:13px;color:'+T.text2+'">'+draft.data.info.siteName+' · Step '+(draft.step+1)+'/9 · '+timeStr+'</div></div><div style="font-size:13px;color:'+T.accent+';font-weight:600">이어서 →</div></div>';
+    draftCard.onclick = function(){
+      data = draft.data;
+      step = draft.step;
+      editingId = draft.editingId;
+      showReport = false;
+      navigateTo('wizard');
+    };
+    var delDraft = h('button',{style:{marginTop:'8px',background:'none',border:'none',color:T.text4,fontSize:'12px',cursor:'pointer',padding:'0'}},'삭제');
+    delDraft.onclick = function(e){ e.stopPropagation(); clearDraft(); render(); };
+    draftCard.appendChild(delDraft);
+    inner.appendChild(draftCard);
+  }
 
   // Reports list
   const listHeader = h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}});
@@ -1183,8 +1205,8 @@ function renderStepSketch(wrap){
   wrap.appendChild(modeRow);
 
   if(d2.mode==='photo' && !d2.bgPhoto){
-    const uploadBtn = h('button',{style:{width:'100%',padding:'40px 0',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'14px',cursor:'pointer',marginBottom:'16px'}},'📷 평면도 또는 현장 사진 촬영/선택');
-    const fileInput = h('input',{type:'file',accept:'image/*',capture:'environment',style:{display:'none'}});
+    const uploadBtn = h('button',{style:{width:'100%',padding:'40px 0',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'14px',cursor:'pointer',marginBottom:'16px'}},'🖼 앨범에서 사진 불러오기');
+    const fileInput = h('input',{type:'file',accept:'image/*',style:{display:'none'}});
     fileInput.onchange=e=>{const f=e.target.files[0];if(f){compressImage(f,2000,0.85).then(src=>{d2.bgPhoto=src;render();});}e.target.value='';};
     uploadBtn.onclick=()=>fileInput.click();
     wrap.appendChild(uploadBtn);
@@ -1217,53 +1239,61 @@ function renderStepSketch(wrap){
 
       var drawCanvas = function(save){
         ctx.setTransform(dpr,0,0,dpr,0,0);
+        // Always use dark colors for consistency
+        var CK_BG='#111', CK_GRID='#333', CK_WALL='#eee';
         if(bgImg && bgImg.complete){
           var s=Math.min(w/bgImg.width,cH/bgImg.height);
           ctx.drawImage(bgImg,(w-bgImg.width*s)/2,(cH-bgImg.height*s)/2,bgImg.width*s,bgImg.height*s);
         } else {
-          ctx.fillStyle=T.canvasBg; ctx.fillRect(0,0,w,cH);
-          ctx.strokeStyle=T.canvasGrid; ctx.lineWidth=0.5;
+          ctx.fillStyle=CK_BG; ctx.fillRect(0,0,w,cH);
+          ctx.strokeStyle=CK_GRID; ctx.lineWidth=0.5;
           for(var gx=0;gx<=w;gx+=15){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,cH);ctx.stroke();}
           for(var gy=0;gy<=cH;gy+=15){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(w,gy);ctx.stroke();}
         }
-        // Legacy walls
-        (d2.walls||[]).forEach(function(wall){
-          ctx.strokeStyle=T.text; ctx.lineWidth=6; ctx.lineCap='round';
-          ctx.beginPath(); ctx.moveTo(wall.x1,wall.y1); ctx.lineTo(wall.x2,wall.y2); ctx.stroke();
-        });
-        // Polygon
-        var poly = d2.polygon;
-        if(poly && poly.length>=3){
-          ctx.strokeStyle=T.text; ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round';
-          ctx.beginPath();
-          var p0=toPx(poly[0]); ctx.moveTo(p0.x,p0.y);
-          for(var i=1;i<poly.length;i++){var p=toPx(poly[i]);ctx.lineTo(p.x,p.y);}
-          ctx.closePath(); ctx.stroke();
+        // Draw walls & polygon only in draw mode (not photo mode)
+        if(d2.mode!=='photo'){
+          // Legacy walls
+          (d2.walls||[]).forEach(function(wall){
+            ctx.strokeStyle=CK_WALL; ctx.lineWidth=6; ctx.lineCap='round';
+            ctx.beginPath(); ctx.moveTo(wall.x1,wall.y1); ctx.lineTo(wall.x2,wall.y2); ctx.stroke();
+          });
+          // Polygon
+          var poly = d2.polygon;
+          if(poly && poly.length>=3){
+            ctx.strokeStyle=CK_WALL; ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round';
+            ctx.beginPath();
+            var p0=toPx(poly[0]); ctx.moveTo(p0.x,p0.y);
+            for(var i=1;i<poly.length;i++){var p=toPx(poly[i]);ctx.lineTo(p.x,p.y);}
+            ctx.closePath(); ctx.stroke();
+          }
         }
         if(save && (!d2.drawing || d2.drawing.startsWith('data:'))) d2.drawing = canvas.toDataURL();
-        // Vertex handles
-        if(sketchTool==='wall' && poly){
-          for(var i=0;i<poly.length;i++){
-            var p=toPx(poly[i]);
-            ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2);
-            ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fill();
-            ctx.strokeStyle=T.accent; ctx.lineWidth=2.5; ctx.stroke();
+        // Vertex handles (draw mode only)
+        if(d2.mode!=='photo'){
+          var poly = d2.polygon;
+          if(sketchTool==='wall' && poly){
+            for(var i=0;i<poly.length;i++){
+              var p=toPx(poly[i]);
+              ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2);
+              ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fill();
+              ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.stroke();
+            }
+            for(var i=0;i<poly.length;i++){
+              var c=toPx(poly[i]), n=toPx(poly[(i+1)%poly.length]);
+              var mx=(c.x+n.x)/2, my=(c.y+n.y)/2;
+              ctx.beginPath(); ctx.arc(mx,my,9,0,Math.PI*2);
+              ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.fill();
+              ctx.strokeStyle=CK_WALL; ctx.lineWidth=1.5;
+              ctx.beginPath(); ctx.moveTo(mx-4,my); ctx.lineTo(mx+4,my); ctx.stroke();
+              ctx.beginPath(); ctx.moveTo(mx,my-4); ctx.lineTo(mx,my+4); ctx.stroke();
+            }
           }
-          for(var i=0;i<poly.length;i++){
-            var c=toPx(poly[i]), n=toPx(poly[(i+1)%poly.length]);
-            var mx=(c.x+n.x)/2, my=(c.y+n.y)/2;
-            ctx.beginPath(); ctx.arc(mx,my,9,0,Math.PI*2);
-            ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.fill();
-            ctx.strokeStyle=T.text; ctx.lineWidth=1.5;
-            ctx.beginPath(); ctx.moveTo(mx-4,my); ctx.lineTo(mx+4,my); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(mx,my-4); ctx.lineTo(mx,my+4); ctx.stroke();
-          }
-        }
-        if(sketchTool==='eraser' && poly && poly.length>3){
-          for(var i=0;i<poly.length;i++){
-            var p=toPx(poly[i]);
-            ctx.beginPath(); ctx.arc(p.x,p.y,12,0,Math.PI*2);
-            ctx.strokeStyle='#f55'; ctx.lineWidth=2; ctx.stroke();
+          if(sketchTool==='eraser' && poly && poly.length>3){
+            for(var i=0;i<poly.length;i++){
+              var p=toPx(poly[i]);
+              ctx.beginPath(); ctx.arc(p.x,p.y,12,0,Math.PI*2);
+              ctx.strokeStyle='#f55'; ctx.lineWidth=2; ctx.stroke();
+            }
           }
         }
       };
@@ -1370,7 +1400,7 @@ function renderStepSketch(wrap){
           if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
           render();
         }
-        if(sketchTool==='eraser' && d2.polygon && d2.polygon.length>3){
+        if(sketchTool==='eraser' && d2.mode!=='photo' && d2.polygon && d2.polygon.length>3){
           for(var i=0;i<d2.polygon.length;i++){
             var vp=toPx(d2.polygon[i]);
             var dx=pos.x-vp.x, dy=pos.y-vp.y;
@@ -1405,13 +1435,15 @@ function renderStepSketch(wrap){
         var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
         var el=document.createElement('div');
         el.style.cssText='position:absolute;left:'+pin.x+'%;top:'+pin.y+'%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
-        el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:'+T.pinBg+';display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:'+T.pinLabelText+';background:'+T.pinLabelBg+';padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap">'+(pt?pt.label:'')+'</div>';
+        el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap">'+(pt?pt.label:'')+'</div>';
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;var fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(function(p){return p.id!==pin.id;});sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type});render();};
         canvasWrap.appendChild(el);
       });
     });
 
     // Toolbar
+    // In photo mode, wall editing is not available — auto-switch tool
+    if(d2.mode==='photo' && sketchTool==='wall') sketchTool='door';
     const toolbar = h('div',{style:{display:'flex',gap:'6px',marginBottom:'12px',flexWrap:'wrap'}});
     const mkToolBtn = (id,lb) => {
       const active = sketchTool===id;
@@ -1419,7 +1451,7 @@ function renderStepSketch(wrap){
       btn.onclick=()=>{sketchTool=id;render();};
       return btn;
     };
-    toolbar.appendChild(mkToolBtn('wall','✏️ 벽체 편집'));
+    if(d2.mode!=='photo') toolbar.appendChild(mkToolBtn('wall','✏️ 벽체 편집'));
     toolbar.appendChild(mkToolBtn('door','🚪 출입구'));
     toolbar.appendChild(mkToolBtn('pin','📍 설비'));
     toolbar.appendChild(mkToolBtn('eraser','🧹 지우기'));
@@ -1447,7 +1479,7 @@ function renderStepSketch(wrap){
 
     if(sketchTool==='wall') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'꼭지점을 드래그하여 벽체 수정 · + 버튼으로 꼭지점 추가 · 90° 자동 정렬'));
     if(sketchTool==='door') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'출입구 위치를 탭하세요'));
-    if(sketchTool==='eraser') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'빨간 원(꼭지점) 또는 흔들리는 스티커를 탭하세요'));
+    if(sketchTool==='eraser') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},d2.mode==='photo'?'흔들리는 스티커를 탭하여 삭제':'빨간 원(꼭지점) 또는 흔들리는 스티커를 탭하세요'));
 
     if(sketchTool==='pin'){
       const pinSel = h('div',{style:{marginBottom:'12px'}});
@@ -1482,7 +1514,7 @@ function renderStepSketch(wrap){
       wrap.appendChild(pinsList);
     }
 
-    wrap.appendChild(h('div',{style:{fontSize:'11px',color:T.text4,marginTop:'8px'}},'꼭지점 '+(d2.polygon||[]).length+'개 · 출입구 '+(d2.doors||[]).length+'개 · 설비 '+(d2.pins||[]).length+'개'));
+    wrap.appendChild(h('div',{style:{fontSize:'11px',color:T.text4,marginTop:'8px'}},(d2.mode!=='photo'?'꼭지점 '+(d2.polygon||[]).length+'개 · ':'')+'출입구 '+(d2.doors||[]).length+'개 · 설비 '+(d2.pins||[]).length+'개'));
   }
 }
 function renderStepFacility(wrap){
@@ -1568,6 +1600,12 @@ function renderStepElectric(wrap){
   const addEntryBtn = h('button',{style:{width:'100%',padding:'10px 0',borderRadius:'8px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text5,fontSize:'13px',cursor:'pointer'}},'+ 추가');
   addEntryBtn.onclick=()=>{d2.panelEntries=[...entries,{phase:'삼상',amps:''}];render();};
   pBox.appendChild(addEntryBtn);
+
+  // Panel location text
+  const panelLocInp = h('input',{type:'text',style:{...inputStyle(),fontSize:'14px',marginTop:'10px'},placeholder:'분전함 위치 및 메모 (예: 입구 좌측 상단)'});
+  panelLocInp.value = d2.panelLocation||'';
+  panelLocInp.oninput=e=>{d2.panelLocation=e.target.value;};
+  pBox.appendChild(panelLocInp);
 
   // Panel photos
   pBox.appendChild(makeInlinePhotos(d2.panelPhotos||[],addP('panelPhotos'),rmP('panelPhotos')));
@@ -1835,7 +1873,9 @@ function renderReport(){
   const elecSec = h('div',{style:secStyle});
   elecSec.appendChild(secTitle('4','전기, 냉난방'));
   const panelVal = (data.electric.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.includes('A')).join(' + ');
-  elecSec.appendChild(makeRow('분전함/계량기',panelVal,data.electric.panelPhotos));
+  const panelLoc = data.electric.panelLocation||'';
+  const panelDisplay = [panelVal, panelLoc].filter(Boolean).join(' / ');
+  elecSec.appendChild(makeRow('분전함/계량기',panelDisplay,data.electric.panelPhotos));
   elecSec.appendChild(makeRow('냉난방기/실외기',data.electric.hvac,data.electric.hvacPhotos));
   elecSec.appendChild(makeRow('기타 특이사항',data.electric.notes,data.electric.notesPhotos));
   inner.appendChild(elecSec);
@@ -1945,6 +1985,42 @@ window.addEventListener('popstate', e => {
     render();
   }
 });
+
+// ==================== Auto Save (localStorage) ====================
+var AUTOSAVE_KEY = 'iggg_report_draft';
+
+function autoSave(){
+  try {
+    var draft = {
+      data: data,
+      step: step,
+      editingId: editingId,
+      ts: Date.now()
+    };
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(draft));
+  } catch(e){}
+}
+
+function loadDraft(){
+  try {
+    var raw = localStorage.getItem(AUTOSAVE_KEY);
+    if(!raw) return null;
+    var draft = JSON.parse(raw);
+    if(!draft.data || !draft.data.info) return null;
+    // Ignore drafts older than 7 days
+    if(Date.now() - draft.ts > 7*24*60*60*1000){ localStorage.removeItem(AUTOSAVE_KEY); return null; }
+    return draft;
+  } catch(e){ return null; }
+}
+
+function clearDraft(){
+  try { localStorage.removeItem(AUTOSAVE_KEY); } catch(e){}
+}
+
+// Auto-save every 3 seconds when editing
+setInterval(function(){
+  if(currentView==='wizard' && isUnlocked) autoSave();
+}, 3000);
 
 // Set initial state
 history.replaceState({view:'home'},'');
