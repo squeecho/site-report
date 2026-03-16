@@ -788,13 +788,6 @@ function renderWizard(){
   nav.appendChild(nextBtn);
   container.appendChild(nav);
 
-  // Swipe
-  let touchStart=null,touchEnd=null;
-  if(currentStep.id!=='sketch'){
-    container.addEventListener('touchstart',e=>{touchEnd=null;touchStart=e.targetTouches[0].clientX;},{passive:true});
-    container.addEventListener('touchmove',e=>{touchEnd=e.targetTouches[0].clientX;},{passive:true});
-    container.addEventListener('touchend',()=>{if(!touchStart||!touchEnd)return;const d2=touchStart-touchEnd;if(Math.abs(d2)>50){if(d2>0&&step<STEPS.length-1){step++;render(true);}else if(d2<0&&step>0){step--;render(true);}}touchStart=touchEnd=null;});
-  }
 
   return container;
 }
