@@ -43,11 +43,13 @@ input[type="number"]{-moz-appearance:textfield}
   /* Header */
   [data-report-header]{padding:0 0 14pt!important;margin-bottom:18pt!important;border-bottom:2pt solid #1a1a1a!important}
   [data-report-header] h1{font-size:20pt!important}
-  /* ALL card sections flat, no break constraints */
+  /* Card sections flat */
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
     padding:0!important;margin-bottom:14pt!important;
   }
+  /* Sections 2-7: keep entire section together on one page */
+  [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
   /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
