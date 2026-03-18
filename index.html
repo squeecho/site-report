@@ -103,7 +103,11 @@ input[type="number"]{-moz-appearance:textfield}
   img{max-width:100%!important}
   /* Footer */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:block!important;position:fixed;bottom:3mm;left:0;right:0;text-align:center;z-index:9999}
+  .print-page-footer{display:none!important}
+  .print-table{width:100%!important;display:table!important}
+  .print-table-body{display:table-row-group!important}
+  .print-table-foot{display:table-footer-group!important;text-align:center}
+  .print-table-foot td{padding-top:8pt;padding-bottom:2mm}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -1944,7 +1948,6 @@ function renderReport(){
         <img src="${LOGO_URL}" style="height:32px;margin-bottom:12px;mix-blend-mode:multiply">
         <div style="font-size:11px;color:#bbb;letter-spacing:1px">iggg.kr</div>
       </div>
-      <div style="position:absolute;bottom:0;left:0;right:0;height:10mm;background:#fff"></div>
     </div>`;
   inner.insertBefore(cover, inner.firstChild);
 
@@ -2183,14 +2186,29 @@ function renderReport(){
   footer.innerHTML = `<img src="${LOGO_URL}" style="height:32px;opacity:0.35;mix-blend-mode:multiply">`;
   inner.appendChild(footer);
 
-  // Print-only repeating page footer (appended to body for reliable position:fixed in print)
-  let printFooter = document.querySelector('.print-page-footer');
-  if(!printFooter){
-    printFooter = document.createElement('div');
-    printFooter.className = 'print-page-footer';
-    printFooter.style.display = 'none';
-    printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply">`;
-    document.body.appendChild(printFooter);
+  // Print-only repeating page footer using table structure
+  // Wrap non-cover content in table so tfoot repeats on every page (except cover)
+  {
+    const coverEl = inner.querySelector('[data-cover-page]');
+    const tbl = document.createElement('table');
+    tbl.className = 'print-table';
+    tbl.style.cssText = 'width:100%;border-collapse:collapse';
+    const tfoot = document.createElement('tfoot');
+    tfoot.className = 'print-table-foot';
+    tfoot.style.display = 'none';
+    tfoot.innerHTML = `<tr><td><img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply"></td></tr>`;
+    const tbody = document.createElement('tbody');
+    tbody.className = 'print-table-body';
+    const td = document.createElement('td');
+    // Move all non-cover children into the table
+    const children = Array.from(inner.children).filter(c => c !== coverEl);
+    children.forEach(c => td.appendChild(c));
+    const tr = document.createElement('tr');
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    tbl.appendChild(tfoot);
+    tbl.appendChild(tbody);
+    inner.appendChild(tbl);
   }
 
   // Save / Share buttons (only in edit mode)
