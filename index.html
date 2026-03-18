@@ -48,13 +48,11 @@ input[type="number"]{-moz-appearance:textfield}
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
     padding:0!important;margin-bottom:14pt!important;
+    break-inside:auto!important;page-break-inside:auto!important;
   }
-  /* Only small data sections avoid page break */
-  [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
-  /* Photo sections CAN flow across pages - no more blank gaps */
-  [data-photo-section]{break-inside:auto!important;page-break-inside:auto!important}
-  /* Section titles */
+  /* Section title stays with first content row - never orphaned at page bottom */
   [data-sec-title]{
+    break-after:avoid!important;page-break-after:avoid!important;
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
     border-bottom:1.5pt solid #333!important;
   }
@@ -63,33 +61,46 @@ input[type="number"]{-moz-appearance:textfield}
     width:20pt!important;height:20pt!important;font-size:9pt!important;border-radius:4pt!important;
   }
   /* Data rows */
-  [data-report-row]{padding:5pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important}
+  [data-report-row]{padding:5pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
   [data-report-row]>div:first-child{font-size:8pt!important;color:#666!important;margin-bottom:2pt!important}
   [data-report-row]>div:nth-child(2){font-size:10pt!important;color:#1a1a1a!important}
-  /* Photo label containers can break */
+  /* Photo label containers can break across pages */
   [data-print-photo]{break-inside:auto!important;page-break-inside:auto!important;margin-bottom:8pt!important}
-  /* Photo grid 2 columns */
-  [data-photo-grid]{grid-template-columns:repeat(2,1fr)!important;gap:6pt!important}
-  /* Each photo cell avoids break individually */
-  [data-photo-cell]{
-    aspect-ratio:4/3!important;border-radius:3pt!important;border:0.5pt solid #ccc!important;
+  /* Photo grid wrapper */
+  [data-photo-grid]{gap:6pt!important}
+  /* Each photo ROW (2 photos) stays together on same page */
+  [data-photo-row]{
+    gap:6pt!important;
     break-inside:avoid!important;page-break-inside:avoid!important;
+    margin-bottom:0!important;
+    align-items:center!important;
   }
-  /* Row inline photos bigger */
-  [data-row-photos]{gap:6pt!important;margin-top:6pt!important}
-  [data-row-photos]>div{width:72pt!important;height:72pt!important;border-radius:3pt!important;border:0.5pt solid #ccc!important}
+  /* Photo cells: fixed height, contain mode for mixed portrait/landscape */
+  [data-photo-cell]{
+    aspect-ratio:auto!important;
+    height:200pt!important;
+    border-radius:3pt!important;border:0.5pt solid #ddd!important;
+    background:#fafafa!important;
+  }
+  [data-photo-cell] img{
+    object-fit:contain!important;width:100%!important;height:100%!important;
+  }
+  /* Row inline photos (facility/construction) - much bigger */
+  [data-row-photos]{gap:8pt!important;margin-top:8pt!important}
+  [data-row-photos]>div{
+    width:120pt!important;height:90pt!important;
+    border-radius:3pt!important;border:0.5pt solid #ddd!important;
+    background:#fafafa!important;
+  }
+  [data-row-photos]>div img{object-fit:contain!important}
   /* Sketch */
-  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
-  /* Measurement floor plan - full width */
-  [data-measure-photo] [data-photo-grid]{grid-template-columns:1fr!important}
-  [data-measure-photo] [data-photo-cell]{aspect-ratio:auto!important;max-height:480pt!important}
+  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important;background:#f0f0f0!important}
+  /* Measurement floor plan - single column full width */
+  [data-measure-photo] [data-photo-row]{flex-direction:column!important}
+  [data-measure-photo] [data-photo-cell]{height:auto!important;max-height:520pt!important;flex:none!important;background:transparent!important}
+  [data-measure-photo] [data-photo-cell] img{object-fit:contain!important}
   /* Images */
   img{max-width:100%!important}
-  /* Hide gray placeholder backgrounds on photo cells in print */
-  [data-photo-cell]{background:transparent!important}
-  [data-row-photos]>div{background:transparent!important}
-  /* Ensure sketch background stays dark */
-  [data-sketch-wrap]{background:#000!important}
   /* Footer */
   [data-report-footer]{margin-top:16pt!important;padding-top:10pt!important;border-top:0.5pt solid #ccc!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
@@ -1351,8 +1362,8 @@ function renderStepSketch(wrap){
 
       var drawCanvas = function(save){
         ctx.setTransform(dpr,0,0,dpr,0,0);
-        // Always use dark colors for consistency
-        var CK_BG='#111', CK_GRID='#333', CK_WALL='#eee';
+        // Always use light colors for consistency (light mode sketch)
+        var CK_BG='#f0f0f0', CK_GRID='#ddd', CK_WALL='#333';
         if(bgImg && bgImg.complete){
           var s=Math.min(w/bgImg.width,cH/bgImg.height);
           ctx.drawImage(bgImg,(w-bgImg.width*s)/2,(cH-bgImg.height*s)/2,bgImg.width*s,bgImg.height*s);
@@ -1387,14 +1398,14 @@ function renderStepSketch(wrap){
             for(var i=0;i<poly.length;i++){
               var p=toPx(poly[i]);
               ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2);
-              ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.fill();
-              ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.stroke();
+              ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fill();
+              ctx.strokeStyle='#333'; ctx.lineWidth=2.5; ctx.stroke();
             }
             for(var i=0;i<poly.length;i++){
               var c=toPx(poly[i]), n=toPx(poly[(i+1)%poly.length]);
               var mx=(c.x+n.x)/2, my=(c.y+n.y)/2;
               ctx.beginPath(); ctx.arc(mx,my,9,0,Math.PI*2);
-              ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.fill();
+              ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fill();
               ctx.strokeStyle=CK_WALL; ctx.lineWidth=1.5;
               ctx.beginPath(); ctx.moveTo(mx-4,my); ctx.lineTo(mx+4,my); ctx.stroke();
               ctx.beginPath(); ctx.moveTo(mx,my-4); ctx.lineTo(mx,my+4); ctx.stroke();
@@ -1547,7 +1558,7 @@ function renderStepSketch(wrap){
         var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
         var el=document.createElement('div');
         el.style.cssText='position:absolute;left:'+pin.x+'%;top:'+pin.y+'%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
-        el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap">'+(pt?pt.label:'')+'</div>';
+        el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap;border:1px solid #ccc;font-weight:600">'+(pt?pt.label:'')+'</div>';
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;var fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(function(p){return p.id!==pin.id;});sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type});render();};
         canvasWrap.appendChild(el);
       });
@@ -1945,18 +1956,29 @@ function renderReport(){
   }
 
   // Photo grid for report - larger, clickable
+  // Uses paired rows for clean print page breaks
+  // Print CSS switches to object-fit:contain for mixed portrait/landscape
   function makePhotos(photos,label){
     if(!photos?.length) return document.createTextNode('');
     const box = h('div',{style:{marginBottom:'16px'},'data-print-photo':'1'});
     box.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'8px',fontWeight:'600',letterSpacing:'0.5px'}},`${label} (${photos.length}장)`));
-    const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'},'data-photo-grid':'1'});
-    photos.forEach((p,i)=>{
-      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer',border:`1px solid ${T.border2}`},'data-photo-cell':'1'});
-      cell.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
-      cell.onclick=()=>openLightbox(photos,i);
-      grid.appendChild(cell);
-    });
-    box.appendChild(grid);
+    const gridWrap = h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'},'data-photo-grid':'1'});
+    for(let i=0; i<photos.length; i+=2){
+      const row = h('div',{style:{display:'flex',gap:'10px',alignItems:'stretch'},'data-photo-row':'1'});
+      const isPair = (i+1 < photos.length);
+      for(let j=i; j<Math.min(i+2, photos.length); j++){
+        const cell = h('div',{style:{
+          flex: isPair ? '1' : '0 0 calc(50% - 5px)',
+          aspectRatio:'1',borderRadius:'10px',overflow:'hidden',
+          background:T.bg4,cursor:'pointer',border:`1px solid ${T.border2}`
+        },'data-photo-cell':'1'});
+        cell.innerHTML = `<img src="${photos[j]}" style="width:100%;height:100%;object-fit:cover">`;
+        cell.onclick=(function(idx){return function(){openLightbox(photos,idx);};})(j);
+        row.appendChild(cell);
+      }
+      gridWrap.appendChild(row);
+    }
+    box.appendChild(gridWrap);
     return box;
   }
 
@@ -2042,17 +2064,17 @@ function renderReport(){
     skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
     skSec.appendChild(skTitle);
     if(data.sketch.drawing){
-      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#000'},'data-sketch-wrap':'1'});
+      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#f0f0f0'},'data-sketch-wrap':'1'});
       imgWrap.innerHTML = `<img src="${data.sketch.drawing}" style="width:100%;display:block">`;
       (data.sketch.doors||[]).forEach(dr=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600">출입구</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600;border:1px solid #ccc">출입구</div></div>`;
       });
       (data.sketch.pins||[]).forEach(pin=>{
         const pt=PIN_TYPES.find(p=>p.id===pin.type);
-        imgWrap.innerHTML += `<div style="position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${pt?.emoji||''}</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${pt?.label||''}</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${pin.x}%;top:${pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">${pt?.emoji||''}</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600;border:1px solid #ccc">${pt?.label||''}</div></div>`;
       });
       facPins.forEach(fp=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${fp.pin.x}%;top:${fp.pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${fp.emoji}</div><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600">${fp.label}</div></div>`;
+        imgWrap.innerHTML += `<div style="position:absolute;left:${fp.pin.x}%;top:${fp.pin.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">${fp.emoji}</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600;border:1px solid #ccc">${fp.label}</div></div>`;
       });
       skSec.appendChild(imgWrap);
     }
