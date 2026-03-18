@@ -75,14 +75,13 @@ input[type="number"]{-moz-appearance:textfield}
   [data-photo-grid]{gap:6pt!important}
   /* Photo rows - NO break constraints to prevent overlap */
   [data-photo-row]{gap:6pt!important;align-items:center!important}
-  /* Photo cells: contain mode for mixed portrait/landscape */
+  /* Photo cells: ALL same height regardless of single or paired */
   [data-photo-cell]{
     aspect-ratio:auto!important;height:155pt!important;
     border-radius:3pt!important;border:0.5pt solid #ddd!important;
     background:#fafafa!important;
   }
-  /* Single odd photo smaller */
-  [data-photo-cell]:only-child{height:120pt!important}
+  [data-photo-cell]:only-child{height:155pt!important}
   [data-photo-cell] img{object-fit:contain!important;width:100%!important;height:100%!important}
   /* Row inline photos */
   [data-row-photos]{gap:8pt!important;margin-top:8pt!important}
@@ -100,9 +99,9 @@ input[type="number"]{-moz-appearance:textfield}
   [data-measure-photo] [data-photo-cell] img{object-fit:contain!important}
   /* Images */
   img{max-width:100%!important}
-  /* Footer - right-aligned to avoid content overlap */
+  /* Footer - far right edge */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:block!important;position:fixed;bottom:3mm;right:14mm;left:auto;text-align:right;z-index:9999}
+  .print-page-footer{display:block!important;position:fixed;bottom:3mm;right:5mm;left:auto;text-align:right;z-index:9999}
   .print-section-footer{display:none!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
