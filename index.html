@@ -29,31 +29,32 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:16mm 18mm 20mm 18mm}
-  @page:first{margin-top:12mm}
+  @page{size:A4;margin:14mm 16mm 18mm 16mm}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
-  /* Hide interactive elements */
   [data-pdf-hide]{display:none!important}
   iframe{display:none!important}
   [style*="position: fixed"],[style*="position:fixed"]{display:none!important}
   [style*="gradient"]{background:none!important}
-  /* Full width layout - override mobile 520px */
+  /* Full A4 width */
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
   [data-report-inner]{max-width:100%!important;padding:0!important}
-  /* Clean header */
-  [data-report-header]{padding:0 0 16pt!important;margin-bottom:20pt!important;border-bottom:2pt solid #1a1a1a!important}
+  /* Header */
+  [data-report-header]{padding:0 0 14pt!important;margin-bottom:18pt!important;border-bottom:2pt solid #1a1a1a!important}
   [data-report-header] h1{font-size:20pt!important}
-  /* Section cards → clean print sections */
-  [data-print-section]{
+  /* ALL card sections -> flat print */
+  [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
-    padding:0!important;margin-bottom:16pt!important;
-    break-inside:avoid!important;page-break-inside:avoid!important;
+    padding:0!important;margin-bottom:14pt!important;
   }
-  /* Section title bar */
+  /* Only small data sections avoid page break */
+  [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
+  /* Photo sections CAN flow across pages - no more blank gaps */
+  [data-photo-section]{break-inside:auto!important;page-break-inside:auto!important}
+  /* Section titles */
   [data-sec-title]{
-    font-size:11pt!important;padding-bottom:6pt!important;margin-bottom:10pt!important;
+    font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
     border-bottom:1.5pt solid #333!important;
   }
   [data-sec-title] span:first-child{
@@ -61,40 +62,31 @@ input[type="number"]{-moz-appearance:textfield}
     width:20pt!important;height:20pt!important;font-size:9pt!important;border-radius:4pt!important;
   }
   /* Data rows */
-  [data-report-row]{padding:6pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important}
+  [data-report-row]{padding:5pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important}
   [data-report-row]>div:first-child{font-size:8pt!important;color:#666!important;margin-bottom:2pt!important}
   [data-report-row]>div:nth-child(2){font-size:10pt!important;color:#1a1a1a!important}
-  /* Photo grids - 2 columns for readability */
-  [data-photo-grid]{
-    grid-template-columns:repeat(2,1fr)!important;gap:8pt!important;
+  /* Photo label containers can break */
+  [data-print-photo]{break-inside:auto!important;page-break-inside:auto!important;margin-bottom:8pt!important}
+  /* Photo grid 2 columns */
+  [data-photo-grid]{grid-template-columns:repeat(2,1fr)!important;gap:6pt!important}
+  /* Each photo cell avoids break individually */
+  [data-photo-cell]{
+    aspect-ratio:4/3!important;border-radius:3pt!important;border:0.5pt solid #ccc!important;
+    break-inside:avoid!important;page-break-inside:avoid!important;
   }
-  [data-photo-grid]>div{
-    aspect-ratio:4/3!important;border-radius:4pt!important;border:0.5pt solid #ccc!important;
-  }
-  [data-print-photo]{break-inside:avoid!important;page-break-inside:avoid!important;margin-bottom:10pt!important}
-  /* Inline row photos - slightly bigger */
+  /* Row inline photos bigger */
   [data-row-photos]{gap:6pt!important;margin-top:6pt!important}
-  [data-row-photos]>div{width:56pt!important;height:56pt!important;border-radius:4pt!important;border:0.5pt solid #ccc!important}
-  /* Sketch image */
-  [data-sketch-wrap]{border-radius:4pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
-  /* Measurement photos full width */
-  [data-measure-photo] [data-photo-grid]{
-    grid-template-columns:1fr!important;
-  }
-  [data-measure-photo] [data-photo-grid]>div{
-    aspect-ratio:auto!important;max-height:500pt!important;
-  }
+  [data-row-photos]>div{width:72pt!important;height:72pt!important;border-radius:3pt!important;border:0.5pt solid #ccc!important}
+  /* Sketch */
+  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
+  /* Measurement floor plan - full width */
+  [data-measure-photo] [data-photo-grid]{grid-template-columns:1fr!important}
+  [data-measure-photo] [data-photo-cell]{aspect-ratio:auto!important;max-height:480pt!important}
   /* Images */
-  img{max-width:100%!important;break-inside:avoid!important}
+  img{max-width:100%!important}
   /* Footer */
-  [data-report-footer]{
-    margin-top:20pt!important;padding-top:12pt!important;
-    border-top:1pt solid #ccc!important;
-  }
-  /* Color printing */
+  [data-report-footer]{margin-top:16pt!important;padding-top:10pt!important;border-top:0.5pt solid #ccc!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  /* Prevent orphan sections */
-  [data-print-section]:last-of-type{break-after:avoid!important}
 }
 </style>
 </head>
@@ -1805,60 +1797,141 @@ function exportPDF(){
   const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
   const pdfTitle = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
 
-  // Temporarily switch to light theme for printing
+  // Loading overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  overlay.innerHTML = '<div style="background:#fff;padding:24px 40px;border-radius:16px;font-size:15px;font-weight:600;color:#333;box-shadow:0 8px 32px rgba(0,0,0,0.2)">📄 PDF 생성 중...</div>';
+  document.body.appendChild(overlay);
+
+  // Switch to light theme
   const origTheme = T;
-  const origTitle = document.title;
   const wasLight = (T === themes.light);
-  if(!wasLight){
-    T = themes.light;
-    render();
+  if(!wasLight){ T = themes.light; render(); }
+
+  function cleanup(){
+    if(!wasLight){ T = origTheme; render(); }
+    if(overlay.parentNode) overlay.remove();
   }
 
-  // Change page title (shows in print header & becomes default PDF filename)
-  document.title = pdfTitle;
-
-  requestAnimationFrame(()=>{
+  function fallbackPrint(){
+    cleanup();
+    // Fallback: use browser print dialog
+    const origTitle = document.title;
+    document.title = pdfTitle;
     requestAnimationFrame(()=>{
-      // Force all containers to be scrollable/visible for print
-      const app = document.getElementById('app');
-      const saved = [];
-      if(app){
-        const all = app.querySelectorAll('*');
-        all.forEach(el=>{
-          const s = el.style;
-          if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
-            saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
-            if(s.position==='fixed'){ s.display='none'; }
-            else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
-          }
-        });
-        // Also fix app itself
-        saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
-        app.style.height='auto';
-        app.style.overflow='visible';
-      }
-
-      // Force html/body for print
-      const origHtml = document.documentElement.style.cssText;
-      const origBody = document.body.style.cssText;
-      document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-      document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-
-      window.print();
-
-      // Restore everything
-      document.title = origTitle;
-      document.documentElement.style.cssText = origHtml;
-      document.body.style.cssText = origBody;
-      saved.forEach(({el,...styles})=>{
-        Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; });
+      requestAnimationFrame(()=>{
+        const app = document.getElementById('app');
+        const saved = [];
+        if(app){
+          app.querySelectorAll('*').forEach(el=>{
+            const s = el.style;
+            if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
+              saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
+              if(s.position==='fixed') s.display='none';
+              else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
+            }
+          });
+          saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
+          app.style.height='auto'; app.style.overflow='visible';
+        }
+        const origHtml = document.documentElement.style.cssText;
+        const origBody = document.body.style.cssText;
+        document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+        document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+        window.print();
+        document.title = origTitle;
+        document.documentElement.style.cssText = origHtml;
+        document.body.style.cssText = origBody;
+        saved.forEach(({el,...styles})=>{ Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; }); });
+        if(!wasLight){ T = origTheme; render(); }
       });
-      if(!wasLight){
-        T = origTheme;
-        render();
-      }
     });
-  });
+  }
+
+  function doDirectPDF(){
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{
+        const container = document.querySelector('[data-report-container]');
+        if(!container){ fallbackPrint(); return; }
+
+        // Clone the container for PDF generation (don't modify live DOM)
+        const clone = container.cloneNode(true);
+        clone.style.cssText = 'position:absolute;left:-9999px;top:0;width:595px;background:#fff;color:#1a1a1a;font-family:Pretendard Variable,-apple-system,sans-serif;height:auto;min-height:0;overflow:visible';
+
+        // Apply print styles to clone
+        const inner = clone.querySelector('[data-report-inner]');
+        if(inner) inner.style.cssText = 'max-width:100%;padding:0 12px';
+
+        // Remove interactive elements
+        clone.querySelectorAll('[data-pdf-hide],iframe,[style*="position: fixed"],[style*="position:fixed"]').forEach(el=>el.remove());
+
+        // Flatten card sections
+        clone.querySelectorAll('[data-print-section],[data-photo-section]').forEach(el=>{
+          el.style.background='none'; el.style.border='none';
+          el.style.borderRadius='0'; el.style.padding='0';
+          el.style.marginBottom='16px';
+        });
+
+        // Photo grid → 2 columns
+        clone.querySelectorAll('[data-photo-grid]').forEach(el=>{
+          el.style.gridTemplateColumns='repeat(2,1fr)';
+          el.style.gap='8px';
+        });
+
+        // Photo cells
+        clone.querySelectorAll('[data-photo-cell]').forEach(el=>{
+          el.style.aspectRatio='4/3';
+          el.style.borderRadius='4px';
+          el.style.border='1px solid #ccc';
+        });
+
+        // Row photos bigger
+        clone.querySelectorAll('[data-row-photos]>div').forEach(el=>{
+          el.style.width='80px'; el.style.height='80px';
+          el.style.borderRadius='4px'; el.style.border='1px solid #ccc';
+        });
+
+        // Measurement photos full width
+        const measurePhoto = clone.querySelector('[data-measure-photo]');
+        if(measurePhoto){
+          const mg = measurePhoto.querySelector('[data-photo-grid]');
+          if(mg) mg.style.gridTemplateColumns='1fr';
+          measurePhoto.querySelectorAll('[data-photo-cell]').forEach(el=>{
+            el.style.aspectRatio='auto';
+          });
+        }
+
+        document.body.appendChild(clone);
+
+        html2pdf().set({
+          margin: [14, 16, 18, 16],
+          filename: pdfTitle + '.pdf',
+          image: { type: 'jpeg', quality: 0.88 },
+          html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false, width: 595 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css','legacy'], avoid: ['[data-print-section]','[data-photo-cell]','[data-sketch-wrap]','[data-report-row]'] }
+        }).from(clone).save().then(()=>{
+          clone.remove();
+          cleanup();
+        }).catch(err=>{
+          console.warn('html2pdf failed, falling back to print:', err);
+          clone.remove();
+          fallbackPrint();
+        });
+      });
+    });
+  }
+
+  // Load html2pdf.js dynamically
+  if(typeof html2pdf === 'undefined'){
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js';
+    s.onload = doDirectPDF;
+    s.onerror = ()=>{ console.warn('html2pdf.js load failed, using print'); fallbackPrint(); };
+    document.head.appendChild(s);
+  } else {
+    doDirectPDF();
+  }
 }
 
 
@@ -1922,7 +1995,7 @@ function renderReport(){
     box.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'8px',fontWeight:'600',letterSpacing:'0.5px'}},`${label} (${photos.length}장)`));
     const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'},'data-photo-grid':'1'});
     photos.forEach((p,i)=>{
-      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer',border:`1px solid ${T.border2}`}});
+      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer',border:`1px solid ${T.border2}`},'data-photo-cell':'1'});
       cell.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
       cell.onclick=()=>openLightbox(photos,i);
       grid.appendChild(cell);
@@ -1965,7 +2038,7 @@ function renderReport(){
   inner.appendChild(infoSec);
 
   // === Photos section ===
-  const photoSec = h('div',{style:secStyle});
+  const photoSec = h('div',{style:secStyle,'data-photo-section':'1'});
   photoSec.appendChild(secTitle('1','현장사진'));
   photoSec.appendChild(makePhotos(data.photos.exterior,'외부'));
   photoSec.appendChild(makePhotos(data.photos.interior,'내부'));
