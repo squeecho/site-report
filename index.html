@@ -2031,7 +2031,7 @@ function renderReport(){
   fireSec.appendChild(makeRow('스프링클러 여부',data.fire.sprinkler));
   const fireNotes = [...(data.fire.notesTags||[]),data.fire.notesCustom].filter(Boolean);
   if(fireNotes.length){
-    const fnRow = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
+    const fnRow = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px',breakInside:'avoid',pageBreakInside:'avoid'}});
     fnRow.innerHTML = '<div style="color:'+T.text3+';font-size:12px;margin-bottom:4px">기타 특이사항</div>';
     fireNotes.forEach(function(note){
       fnRow.innerHTML += '<div style="color:'+T.text+';font-size:15px;line-height:1.8;font-weight:500">· '+note+'</div>';
