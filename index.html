@@ -29,9 +29,8 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:0}
+  @page{size:A4;margin:10mm 16mm 12mm 16mm}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
-  #app{padding:14mm 16mm 18mm 16mm!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
   [data-pdf-hide]{display:none!important}
@@ -50,12 +49,13 @@ input[type="number"]{-moz-appearance:textfield}
     padding:0!important;margin-bottom:14pt!important;
     break-inside:auto!important;page-break-inside:auto!important;
   }
-  /* Section title stays with first content row - never orphaned at page bottom */
+  /* Section title stays with first content row */
   [data-sec-title]{
     break-after:avoid!important;page-break-after:avoid!important;
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
     border-bottom:1.5pt solid #333!important;
   }
+  [data-sec-title]+*{break-before:avoid!important;page-break-before:avoid!important}
   [data-sec-title] span:first-child{
     background:#1a1a1a!important;color:#fff!important;
     width:20pt!important;height:20pt!important;font-size:9pt!important;border-radius:4pt!important;
@@ -2061,7 +2061,7 @@ function renderReport(){
   if(data.sketch.drawing || (data.sketch.pins||[]).length>0 || (data.sketch.doors||[]).length>0 || facPins.length>0){
     const skSec = h('div',{style:secStyle,'data-print-section':'1'});
     const skTitle = secTitle('','설비 요약 배치도');
-    skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
+    skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px;white-space:nowrap;flex-shrink:0">· 참고용</span>`;
     skSec.appendChild(skTitle);
     if(data.sketch.drawing){
       const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#f0f0f0'},'data-sketch-wrap':'1'});
