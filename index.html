@@ -29,7 +29,7 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:10mm 16mm 12mm 16mm}
+  @page{size:A4;margin:6mm 14mm 6mm 14mm}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
@@ -75,24 +75,24 @@ input[type="number"]{-moz-appearance:textfield}
     margin-bottom:0!important;
     align-items:center!important;
   }
-  /* Photo cells: fixed height, contain mode for mixed portrait/landscape */
+  /* Photo cells: compact, cover-crop for consistent sizing */
   [data-photo-cell]{
     aspect-ratio:auto!important;
-    height:200pt!important;
+    height:130pt!important;
     border-radius:3pt!important;border:0.5pt solid #ddd!important;
-    background:#fafafa!important;
+    background:transparent!important;
   }
   [data-photo-cell] img{
-    object-fit:contain!important;width:100%!important;height:100%!important;
+    object-fit:cover!important;width:100%!important;height:100%!important;
   }
   /* Row inline photos (facility/construction) - much bigger */
   [data-row-photos]{gap:8pt!important;margin-top:8pt!important}
   [data-row-photos]>div{
     width:120pt!important;height:90pt!important;
     border-radius:3pt!important;border:0.5pt solid #ddd!important;
-    background:#fafafa!important;
+    background:transparent!important;
   }
-  [data-row-photos]>div img{object-fit:contain!important}
+  [data-row-photos]>div img{object-fit:cover!important}
   /* Sketch */
   [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important;background:#f0f0f0!important}
   /* Measurement floor plan - single column full width */
