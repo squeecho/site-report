@@ -41,10 +41,10 @@ input[type="number"]{-moz-appearance:textfield}
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
   [data-report-inner]{max-width:100%!important;padding:6mm 14mm 15mm 14mm!important}
   /* Cover page - show in print, full page */
-  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0 14mm!important;position:relative;z-index:99999;background:#fff!important}
-  [data-cover-page]>div{min-height:100vh!important;background:#fff!important}
+  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;margin:-6mm -14mm 0 -14mm!important;padding:0 14mm!important;background:#fff!important}
+  [data-cover-page]>div{height:297mm!important;min-height:0!important;max-height:297mm!important;overflow:hidden!important;background:#fff!important;box-sizing:border-box!important}
   /* Header - compact in print */
-  [data-report-header]{padding:0 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
+  [data-report-header]{padding:8mm 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
@@ -53,7 +53,7 @@ input[type="number"]{-moz-appearance:textfield}
   /* Sections 2-7: keep entire section together on one page */
   [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
   /* Force page break before section 2 */
-  [data-page-break]{break-before:page!important;page-break-before:always!important;padding-top:6mm!important}
+  [data-page-break]{break-before:page!important;page-break-before:always!important;padding-top:8mm!important}
   /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
@@ -175,6 +175,7 @@ let currentView = 'home'; // 'home' | 'wizard' | 'report'
 let isUnlocked = false; // password gate for editing
 const APP_PIN = '0404'; // ← 여기서 비밀번호 변경
 let editingId = null; // report ID when editing existing
+let fromWizard = false; // true when previewing from wizard (needs save)
 let reportsList = null; // cached list
 let data = makeInitialData();
 
@@ -863,7 +864,7 @@ function renderWizard(){
   nextBtn.textContent = step===STEPS.length-1 ? '보고서 미리보기' : '다음';
   nextBtn.onclick = () => {
     if(step<STEPS.length-1){step++;render(true);}
-    else{showReport=true;navigateTo('report');}
+    else{fromWizard=true;showReport=true;navigateTo('report');}
   };
   nav.appendChild(nextBtn);
   container.appendChild(nav);
@@ -1917,7 +1918,7 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;currentView='home';history.pushState({view:'home'},'');render();};
+    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentView='home';history.replaceState({view:'home'},'',location.pathname);render(true);};
     navRow.appendChild(homeBtn);
     headerDiv.appendChild(navRow);
   }
@@ -1935,17 +1936,17 @@ function renderReport(){
   // === Cover page (print only) ===
   const cover = h('div',{style:{display:'none'},'data-cover-page':'1'});
   cover.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:40px 20px;position:relative">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:20px;position:relative">
       <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
-        <div style="width:60px;border-top:2px solid #333;margin-bottom:40px"></div>
+        <div style="width:60px;border-top:2px solid #333;margin-bottom:32px"></div>
         <div style="font-size:11px;color:#999;letter-spacing:3px;text-transform:uppercase;margin-bottom:16px">실측보고서 (BASIC)</div>
         <h1 style="font-size:28px;font-weight:700;color:#1a1a1a;margin:0;line-height:1.4">${info.siteName||'실측보고서'}</h1>
         <div style="font-size:14px;color:#888;margin-top:12px">${info.date} · ${info.manager||'담당자 미입력'}</div>
         ${info.address?`<div style="font-size:13px;color:#aaa;margin-top:8px">${info.address}</div>`:''}
       </div>
-      <div style="padding-bottom:40px;text-align:center">
-        <img src="${LOGO_URL}" style="height:32px;margin-bottom:12px;mix-blend-mode:multiply">
-        <div style="font-size:11px;color:#bbb;letter-spacing:1px">iggg.kr</div>
+      <div style="padding-bottom:20px;text-align:center">
+        <img src="${LOGO_URL}" style="height:28px;margin-bottom:8px;mix-blend-mode:multiply">
+        <div style="font-size:10px;color:#bbb;letter-spacing:1px">iggg.kr</div>
       </div>
     </div>`;
   inner.insertBefore(cover, inner.firstChild);
