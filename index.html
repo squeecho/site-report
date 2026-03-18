@@ -1797,141 +1797,54 @@ function exportPDF(){
   const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
   const pdfTitle = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
 
-  // Loading overlay
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
-  overlay.innerHTML = '<div style="background:#fff;padding:24px 40px;border-radius:16px;font-size:15px;font-weight:600;color:#333;box-shadow:0 8px 32px rgba(0,0,0,0.2)">📄 PDF 생성 중...</div>';
-  document.body.appendChild(overlay);
-
-  // Switch to light theme
+  // Temporarily switch to light theme for printing
   const origTheme = T;
+  const origTitle = document.title;
   const wasLight = (T === themes.light);
-  if(!wasLight){ T = themes.light; render(); }
-
-  function cleanup(){
-    if(!wasLight){ T = origTheme; render(); }
-    if(overlay.parentNode) overlay.remove();
+  if(!wasLight){
+    T = themes.light;
+    render();
   }
 
-  function fallbackPrint(){
-    cleanup();
-    // Fallback: use browser print dialog
-    const origTitle = document.title;
-    document.title = pdfTitle;
+  document.title = pdfTitle;
+
+  requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
-      requestAnimationFrame(()=>{
-        const app = document.getElementById('app');
-        const saved = [];
-        if(app){
-          app.querySelectorAll('*').forEach(el=>{
-            const s = el.style;
-            if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
-              saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
-              if(s.position==='fixed') s.display='none';
-              else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
-            }
-          });
-          saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
-          app.style.height='auto'; app.style.overflow='visible';
-        }
-        const origHtml = document.documentElement.style.cssText;
-        const origBody = document.body.style.cssText;
-        document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-        document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-        window.print();
-        document.title = origTitle;
-        document.documentElement.style.cssText = origHtml;
-        document.body.style.cssText = origBody;
-        saved.forEach(({el,...styles})=>{ Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; }); });
-        if(!wasLight){ T = origTheme; render(); }
+      const app = document.getElementById('app');
+      const saved = [];
+      if(app){
+        app.querySelectorAll('*').forEach(el=>{
+          const s = el.style;
+          if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
+            saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
+            if(s.position==='fixed') s.display='none';
+            else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
+          }
+        });
+        saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
+        app.style.height='auto';
+        app.style.overflow='visible';
+      }
+
+      const origHtml = document.documentElement.style.cssText;
+      const origBody = document.body.style.cssText;
+      document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+      document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+
+      window.print();
+
+      document.title = origTitle;
+      document.documentElement.style.cssText = origHtml;
+      document.body.style.cssText = origBody;
+      saved.forEach(({el,...styles})=>{
+        Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; });
       });
+      if(!wasLight){
+        T = origTheme;
+        render();
+      }
     });
-  }
-
-  function doDirectPDF(){
-    requestAnimationFrame(()=>{
-      requestAnimationFrame(()=>{
-        const container = document.querySelector('[data-report-container]');
-        if(!container){ fallbackPrint(); return; }
-
-        // Clone the container for PDF generation (don't modify live DOM)
-        const clone = container.cloneNode(true);
-        clone.style.cssText = 'position:absolute;left:-9999px;top:0;width:595px;background:#fff;color:#1a1a1a;font-family:Pretendard Variable,-apple-system,sans-serif;height:auto;min-height:0;overflow:visible';
-
-        // Apply print styles to clone
-        const inner = clone.querySelector('[data-report-inner]');
-        if(inner) inner.style.cssText = 'max-width:100%;padding:0 12px';
-
-        // Remove interactive elements
-        clone.querySelectorAll('[data-pdf-hide],iframe,[style*="position: fixed"],[style*="position:fixed"]').forEach(el=>el.remove());
-
-        // Flatten card sections
-        clone.querySelectorAll('[data-print-section],[data-photo-section]').forEach(el=>{
-          el.style.background='none'; el.style.border='none';
-          el.style.borderRadius='0'; el.style.padding='0';
-          el.style.marginBottom='16px';
-        });
-
-        // Photo grid → 2 columns
-        clone.querySelectorAll('[data-photo-grid]').forEach(el=>{
-          el.style.gridTemplateColumns='repeat(2,1fr)';
-          el.style.gap='8px';
-        });
-
-        // Photo cells
-        clone.querySelectorAll('[data-photo-cell]').forEach(el=>{
-          el.style.aspectRatio='4/3';
-          el.style.borderRadius='4px';
-          el.style.border='1px solid #ccc';
-        });
-
-        // Row photos bigger
-        clone.querySelectorAll('[data-row-photos]>div').forEach(el=>{
-          el.style.width='80px'; el.style.height='80px';
-          el.style.borderRadius='4px'; el.style.border='1px solid #ccc';
-        });
-
-        // Measurement photos full width
-        const measurePhoto = clone.querySelector('[data-measure-photo]');
-        if(measurePhoto){
-          const mg = measurePhoto.querySelector('[data-photo-grid]');
-          if(mg) mg.style.gridTemplateColumns='1fr';
-          measurePhoto.querySelectorAll('[data-photo-cell]').forEach(el=>{
-            el.style.aspectRatio='auto';
-          });
-        }
-
-        document.body.appendChild(clone);
-
-        html2pdf().set({
-          margin: [14, 16, 18, 16],
-          filename: pdfTitle + '.pdf',
-          image: { type: 'jpeg', quality: 0.88 },
-          html2canvas: { scale: 2, useCORS: true, allowTaint: true, logging: false, width: 595 },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['css','legacy'], avoid: ['[data-print-section]','[data-photo-cell]','[data-sketch-wrap]','[data-report-row]'] }
-        }).from(clone).save().then(()=>{
-          clone.remove();
-          cleanup();
-        }).catch(err=>{
-          console.warn('html2pdf failed, falling back to print:', err);
-          clone.remove();
-          fallbackPrint();
-        });
-      });
-    });
-  }
-
-  // Load html2pdf.js dynamically
-  if(typeof html2pdf === 'undefined'){
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js';
-    s.onload = doDirectPDF;
-    s.onerror = ()=>{ console.warn('html2pdf.js load failed, using print'); fallbackPrint(); };
-    document.head.appendChild(s);
-  } else {
-    doDirectPDF();
-  }
+  });
 }
 
 
