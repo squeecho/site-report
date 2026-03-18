@@ -102,7 +102,9 @@ input[type="number"]{-moz-appearance:textfield}
   /* Images */
   img{max-width:100%!important}
   /* Footer */
-  [data-report-footer]{margin-top:16pt!important;padding-top:10pt!important;border-top:0.5pt solid #ccc!important}
+  [data-report-footer]{display:none!important}
+  .print-page-footer{display:block!important;position:fixed;bottom:0;left:0;right:0;text-align:center;padding-bottom:2mm}
+  [data-cover-page] ~ .print-page-footer{}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -1931,7 +1933,7 @@ function renderReport(){
   // === Cover page (print only) ===
   const cover = h('div',{style:{display:'none'},'data-cover-page':'1'});
   cover.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:40px 20px">
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:40px 20px;position:relative">
       <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
         <div style="width:60px;border-top:2px solid #333;margin-bottom:40px"></div>
         <div style="font-size:11px;color:#999;letter-spacing:3px;text-transform:uppercase;margin-bottom:16px">실측보고서 (BASIC)</div>
@@ -1943,6 +1945,7 @@ function renderReport(){
         <img src="${LOGO_URL}" style="height:32px;margin-bottom:12px">
         <div style="font-size:11px;color:#bbb;letter-spacing:1px">iggg.kr</div>
       </div>
+      <div style="position:absolute;bottom:0;left:0;right:0;height:10mm;background:#fff"></div>
     </div>`;
   inner.insertBefore(cover, inner.firstChild);
 
@@ -2176,10 +2179,15 @@ function renderReport(){
   mSec.appendChild(measurePhotos);
   inner.appendChild(mSec);
 
-  // Footer
+  // Footer (screen)
   const footer = h('div',{style:{textAlign:'center',padding:'24px 0',marginTop:'8px'},'data-report-footer':'1'});
   footer.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:24px;opacity:0.35">`;
   inner.appendChild(footer);
+
+  // Print-only repeating page footer (position:fixed via CSS class, not inline)
+  const printFooter = h('div',{className:'print-page-footer',style:{display:'none'}});
+  printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35">`;
+  inner.appendChild(printFooter);
 
   // Save / Share buttons (only in edit mode)
   if(!viewMode){
