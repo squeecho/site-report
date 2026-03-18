@@ -29,8 +29,9 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:14mm 16mm 18mm 16mm}
+  @page{size:A4;margin:0}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
+  #app{padding:14mm 16mm 18mm 16mm!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
   [data-pdf-hide]{display:none!important}
@@ -84,6 +85,11 @@ input[type="number"]{-moz-appearance:textfield}
   [data-measure-photo] [data-photo-cell]{aspect-ratio:auto!important;max-height:480pt!important}
   /* Images */
   img{max-width:100%!important}
+  /* Hide gray placeholder backgrounds on photo cells in print */
+  [data-photo-cell]{background:transparent!important}
+  [data-row-photos]>div{background:transparent!important}
+  /* Ensure sketch background stays dark */
+  [data-sketch-wrap]{background:#000!important}
   /* Footer */
   [data-report-footer]{margin-top:16pt!important;padding-top:10pt!important;border-top:0.5pt solid #ccc!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
@@ -1797,6 +1803,12 @@ function exportPDF(){
   const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
   const pdfTitle = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
 
+  // Show loading overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  overlay.innerHTML = '<div style="background:#fff;padding:24px 40px;border-radius:16px;font-size:15px;font-weight:600;color:#333;box-shadow:0 8px 32px rgba(0,0,0,0.2)">📄 이미지 로딩 중...</div>';
+  document.body.appendChild(overlay);
+
   // Temporarily switch to light theme for printing
   const origTheme = T;
   const origTitle = document.title;
@@ -1808,41 +1820,72 @@ function exportPDF(){
 
   document.title = pdfTitle;
 
+  // Wait for DOM to settle, then wait for ALL images to load
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
       const app = document.getElementById('app');
-      const saved = [];
-      if(app){
-        app.querySelectorAll('*').forEach(el=>{
-          const s = el.style;
-          if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
-            saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
-            if(s.position==='fixed') s.display='none';
-            else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
+      const imgs = app ? Array.from(app.querySelectorAll('img')) : [];
+
+      // Create promises for all images
+      const imgPromises = imgs.map(img => {
+        if(img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise(resolve => {
+          img.onload = resolve;
+          img.onerror = resolve; // don't block on failed images
+          // Force reload if src is set but not loading
+          if(img.src && !img.complete){
+            const src = img.src;
+            img.src = '';
+            img.src = src;
           }
         });
-        saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
-        app.style.height='auto';
-        app.style.overflow='visible';
-      }
-
-      const origHtml = document.documentElement.style.cssText;
-      const origBody = document.body.style.cssText;
-      document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-      document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
-
-      window.print();
-
-      document.title = origTitle;
-      document.documentElement.style.cssText = origHtml;
-      document.body.style.cssText = origBody;
-      saved.forEach(({el,...styles})=>{
-        Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; });
       });
-      if(!wasLight){
-        T = origTheme;
-        render();
-      }
+
+      // Wait for all images (with 8s timeout)
+      const timeout = new Promise(resolve => setTimeout(resolve, 8000));
+      Promise.race([Promise.all(imgPromises), timeout]).then(()=>{
+        // Update overlay text
+        overlay.querySelector('div').textContent = '📄 PDF 저장 화면 열기...';
+
+        // Small extra delay for rendering
+        setTimeout(()=>{
+          const saved = [];
+          if(app){
+            app.querySelectorAll('*').forEach(el=>{
+              const s = el.style;
+              if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
+                saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
+                if(s.position==='fixed') s.display='none';
+                else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
+              }
+            });
+            saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
+            app.style.height='auto';
+            app.style.overflow='visible';
+          }
+
+          const origHtml = document.documentElement.style.cssText;
+          const origBody = document.body.style.cssText;
+          document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+          document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+
+          // Remove overlay before print
+          overlay.remove();
+
+          window.print();
+
+          document.title = origTitle;
+          document.documentElement.style.cssText = origHtml;
+          document.body.style.cssText = origBody;
+          saved.forEach(({el,...styles})=>{
+            Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; });
+          });
+          if(!wasLight){
+            T = origTheme;
+            render();
+          }
+        }, 300);
+      });
     });
   });
 }
