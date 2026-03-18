@@ -28,6 +28,18 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
+@media print{
+  @page{size:A4;margin:12mm 10mm}
+  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#111!important}
+  #app,#app *{overflow:visible!important}
+  #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#111!important}
+  [data-pdf-hide]{display:none!important}
+  iframe{display:none!important}
+  [style*="position: fixed"],[style*="position:fixed"]{display:none!important}
+  [style*="gradient"]{background:none!important}
+  img{max-width:100%!important;break-inside:avoid}
+  *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+}
 </style>
 </head>
 <body>
@@ -1732,172 +1744,57 @@ function renderStepMeasure(wrap){
 
 // ==================== PDF Export ====================
 function exportPDF(){
-  const info = data.info;
-  const dateStr = (info.date||'').replace(/[^0-9]/g,'');
-  const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
-  const fileName = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
-
-  // --- Helper functions ---
-  function sec(num, title){
-    return `<div style="font-size:14px;font-weight:700;color:#111;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #111;display:flex;align-items:center;gap:8px">${num?`<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:#111;color:#fff;font-size:10px;font-weight:700">${num}</span>`:''} ${title}</div>`;
-  }
-  function row(label, value){
-    if(!value || value==='—' || (typeof value==='string'&&!value.trim())) return '';
-    return `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">${label}</div><div style="color:#111;font-weight:500">${value}</div></div>`;
-  }
-  function photoGrid(photos, size){
-    if(!photos?.length) return '';
-    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${photos.map(p=>
-      `<img src="${p}" style="width:${size};height:${size};object-fit:cover;border-radius:6px;border:1px solid #ddd" crossorigin="anonymous">`
-    ).join('')}</div>`;
-  }
-  function photoRow(label, value, photos){
-    if((!value||!value.trim())&&(!photos||!photos.length)) return '';
-    let html = `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">${label}</div><div style="color:#111;font-weight:500">${value||'—'}</div>`;
-    if(photos?.length) html += photoGrid(photos, '80px');
-    html += '</div>';
-    return html;
-  }
-  function card(content){ return `<div style="margin-bottom:20px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa;page-break-inside:avoid">${content}</div>`; }
-
-  // --- Build sections ---
-  let body = '';
-
-  // Header
-  body += `<div style="padding-bottom:20px;border-bottom:1px solid #ddd;margin-bottom:24px">
-    <div style="font-size:9px;color:#999;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">이견공간기획 | 실측보고서(basic)</div>
-    <div style="font-size:22px;font-weight:700;color:#111;line-height:1.3">${info.siteName||'실측보고서'}</div>
-    <div style="font-size:12px;color:#888;margin-top:4px">${info.date} · ${info.manager||'담당자 미입력'}</div>
-  </div>`;
-
-  // Info
-  body += card(`${sec('','기초 정보')}${row('실측날짜',info.date)}${row('현장명',info.siteName)}${row('주소',info.address)}${row('담당자',info.manager)}`);
-
-  // Photos (no video)
-  if(data.photos.exterior?.length || data.photos.interior?.length){
-    let ph = sec('1','현장사진');
-    if(data.photos.exterior?.length) ph += `<div style="font-size:10px;color:#888;margin-bottom:6px;font-weight:600">외부 (${data.photos.exterior.length}장)</div>${photoGrid(data.photos.exterior,'110px')}`;
-    if(data.photos.interior?.length) ph += `<div style="font-size:10px;color:#888;margin-bottom:6px;margin-top:12px;font-weight:600">내부 (${data.photos.interior.length}장)</div>${photoGrid(data.photos.interior,'110px')}`;
-    body += card(ph);
+  // Temporarily switch to light theme for printing
+  const origTheme = T;
+  const wasLight = (T === themes.light);
+  if(!wasLight){
+    T = themes.light;
+    render();
   }
 
-  // Fire
-  const fireNotes = [...(data.fire.notesTags||[]),data.fire.notesCustom].filter(Boolean);
-  if(data.fire.compliance || data.fire.sprinkler || fireNotes.length){
-    let fh = sec('2','소방완비 대상여부');
-    fh += row('완비대상 여부', data.fire.compliance);
-    fh += row('스프링클러 여부', data.fire.sprinkler);
-    if(fireNotes.length){
-      fh += `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">기타 특이사항</div>`;
-      fireNotes.forEach(n=>{ fh += `<div style="color:#111;font-weight:500;line-height:1.7">· ${n}</div>`; });
-      fh += '</div>';
-    }
-    body += card(fh);
-  }
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      // Force all containers to be scrollable/visible for print
+      const app = document.getElementById('app');
+      const saved = [];
+      if(app){
+        const all = app.querySelectorAll('*');
+        all.forEach(el=>{
+          const s = el.style;
+          if(s.height==='100vh'||s.minHeight==='100vh'||s.overflow==='hidden'||s.overflowY==='auto'||s.position==='fixed'){
+            saved.push({el, height:s.height, minHeight:s.minHeight, overflow:s.overflow, overflowY:s.overflowY, position:s.position, display:s.display});
+            if(s.position==='fixed'){ s.display='none'; }
+            else { s.height='auto'; s.minHeight='0'; s.overflow='visible'; s.overflowY='visible'; }
+          }
+        });
+        // Also fix app itself
+        saved.push({el:app, height:app.style.height, overflow:app.style.overflow});
+        app.style.height='auto';
+        app.style.overflow='visible';
+      }
 
-  // Sketch
-  if(data.sketch.drawing){
-    body += card(`${sec('','설비 요약 배치도')}<img src="${data.sketch.drawing}" style="width:100%;border-radius:8px;border:1px solid #eee" crossorigin="anonymous">`);
-  }
+      // Force html/body for print
+      const origHtml = document.documentElement.style.cssText;
+      const origBody = document.body.style.cssText;
+      document.documentElement.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
+      document.body.style.cssText += ';height:auto!important;overflow:visible!important;background:#fff!important';
 
-  // Facility
-  const fac = data.facility;
-  if(fac.waterMeter||fac.waterSupply||fac.drainage||(fac.ductTags||[]).length||fac.ductCustom||fac.gasEntry||fac.gasHeater||fac.notes){
-    const ductVal = [...(fac.ductTags||[]),fac.ductCustom].filter(Boolean).join(', ');
-    let fh = sec('3','기초설비 체크사항');
-    fh += photoRow('수도계량기 위치',fac.waterMeter,fac.waterMeterPhotos);
-    fh += photoRow('급수 위치 확인',fac.waterSupply,fac.waterSupplyPhotos);
-    fh += photoRow('배수 위치, 관경',fac.drainage,fac.drainagePhotos);
-    fh += photoRow('덕트 체크',ductVal,fac.ductPhotos);
-    fh += photoRow('가스배관 인입지점',fac.gasEntry,fac.gasEntryPhotos);
-    fh += photoRow('가스온수기',fac.gasHeater,fac.gasHeaterPhotos);
-    fh += photoRow('기타 특이사항',fac.notes,fac.notesPhotos);
-    body += card(fh);
-  }
+      window.print();
 
-  // Electric
-  const elec = data.electric;
-  const panelVal = (elec.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.trim()!=='A'&&e.trim()).join(', ');
-  const panelDisplay = [panelVal, elec.panelLocation].filter(Boolean).join(' / ');
-  if(panelDisplay || elec.hvac || elec.notes){
-    let eh = sec('4','전기·냉난방');
-    eh += photoRow('분전함/계량기',panelDisplay,elec.panelPhotos);
-    eh += photoRow('냉난방기/실외기',elec.hvac,elec.hvacPhotos);
-    eh += photoRow('기타 특이사항',elec.notes,elec.notesPhotos);
-    body += card(eh);
-  }
-
-  // Construction
-  const con = data.construction;
-  const parkingDisplay = [con.parking, con.parkingDetail].filter(Boolean).join(' / ');
-  if(parkingDisplay||con.nearbyParkingAddr||con.materialRoute||con.stairElevator||con.buildingProtection||con.notes){
-    let ch = sec('5','공사관련 체크사항');
-    ch += photoRow('주차관리',parkingDisplay,con.parkingPhotos);
-    if(con.nearbyParkingAddr||con.nearbyParkingRate) ch += row('근처 주차장',`${con.nearbyParkingAddr||'—'} / 일 ${con.nearbyParkingRate||'—'}원`);
-    ch += photoRow('자재입고 동선',con.materialRoute,con.materialRoutePhotos);
-    ch += photoRow('계단/E/V',con.stairElevator,con.stairElevatorPhotos);
-    ch += photoRow('건물 보양',con.buildingProtection,con.buildingProtectionPhotos);
-    ch += photoRow('기타 특이사항',con.notes,con.notesPhotos);
-    body += card(ch);
-  }
-
-  // Etc
-  const etc = data.etc;
-  if(etc.illegalBuilding || etc.leak || etc.notes){
-    let eh2 = sec('6','기타');
-    eh2 += photoRow('불법건축물',etc.illegalBuilding,etc.illegalBuildingPhotos);
-    eh2 += photoRow('건물 누수',etc.leak,etc.leakPhotos);
-    eh2 += photoRow('기타',etc.notes,etc.notesPhotos);
-    body += card(eh2);
-  }
-
-  // Measure
-  const me = data.measure;
-  if(me.ceilingSlab||me.ceilingBeam||me.ceilingFinish||me.area||me.floorPlan?.length){
-    let mh = sec('7','실측도');
-    mh += row('천장고(슬라브)',me.ceilingSlab?me.ceilingSlab+'mm':'');
-    mh += row('천장고(하리)',me.ceilingBeam?me.ceilingBeam+'mm':'');
-    mh += row('천장고(천장마감)',me.ceilingFinish?me.ceilingFinish+'mm':'');
-    mh += row('마감 평수',me.area?me.area+'py':'');
-    if(me.floorPlan?.length){
-      mh += `<div style="font-size:10px;color:#888;margin:10px 0 6px;font-weight:600">실측도면 (${me.floorPlan.length}장)</div>`;
-      mh += me.floorPlan.map(p=>`<img src="${p}" style="width:100%;border-radius:6px;margin-bottom:8px;border:1px solid #eee" crossorigin="anonymous">`).join('');
-    }
-    body += card(mh);
-  }
-
-  // Footer
-  body += `<div style="text-align:center;padding:16px 0;font-size:10px;color:#bbb;letter-spacing:1px">iggg studio</div>`;
-
-  // --- Open print window ---
-  const printWin = window.open('','_blank');
-  if(!printWin){ alert('팝업이 차단되었습니다. 팝업을 허용해주세요.'); return; }
-
-  printWin.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>${fileName}</title>
-<style>
-  @page { size: A4; margin: 15mm 12mm; }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: 'Pretendard Variable',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#111; background:#fff; line-height:1.6; max-width:520px; margin:0 auto; padding:20px 0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  img { max-width:100%; }
-  @media print {
-    body { padding:0; }
-    .no-print { display:none !important; }
-  }
-</style>
-</head><body>
-  <div class="no-print" style="position:fixed;top:0;left:0;right:0;background:#111;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;z-index:100;font-size:14px">
-    <span style="font-weight:600">📄 ${fileName}</span>
-    <div style="display:flex;gap:8px">
-      <button onclick="window.print()" style="padding:8px 20px;border-radius:8px;border:none;background:#fff;color:#111;font-size:13px;font-weight:700;cursor:pointer">PDF 저장 / 인쇄</button>
-      <button onclick="window.close()" style="padding:8px 16px;border-radius:8px;border:1px solid #555;background:transparent;color:#fff;font-size:13px;cursor:pointer">닫기</button>
-    </div>
-  </div>
-  <div style="height:56px" class="no-print"></div>
-  ${body}
-</body></html>`);
-  printWin.document.close();
+      // Restore everything
+      document.documentElement.style.cssText = origHtml;
+      document.body.style.cssText = origBody;
+      saved.forEach(({el,...styles})=>{
+        Object.entries(styles).forEach(([k,v])=>{ if(v!==undefined) el.style[k]=v; });
+      });
+      if(!wasLight){
+        T = origTheme;
+        render();
+      }
+    });
+  });
 }
+
 
 // ==================== Report View ====================
 function renderReport(){
@@ -1909,7 +1806,7 @@ function renderReport(){
   const headerDiv = h('div',{style:{padding:'24px 0 28px',borderBottom:`1px solid ${T.border2}`,marginBottom:'28px'}});
 
   if(!viewMode){
-    const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'}});
+    const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
     homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;currentView='home';history.pushState({view:'home'},'');render();};
     const editBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'✏️ 편집');
@@ -2009,7 +1906,7 @@ function renderReport(){
   if(data.photos.video){
     const m = data.photos.video.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
     if(m){
-      const vd = h('div',{style:{marginTop:'12px'}});
+      const vd = h('div',{style:{marginTop:'12px'},'data-pdf-hide':'1'});
       vd.innerHTML = `<div style="font-size:12px;color:${T.text5};margin-bottom:8px;font-weight:600">동영상</div><div style="border-radius:10px;overflow:hidden;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${m[1]}" style="width:100%;height:100%;border:none" allowfullscreen></iframe></div>`;
       photoSec.appendChild(vd);
     }
