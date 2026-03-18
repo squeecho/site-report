@@ -29,17 +29,17 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:0}
+  @page{size:A4;margin:10mm 0 0 0}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
-  /* Reset app containers - but NOT using #app * which kills everything */
+  /* Reset app containers - targeted, not wildcard, to preserve cover page styles */
   #app{overflow:visible!important;height:auto!important}
   [data-report-container]{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
-  [data-report-inner]{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;max-width:100%!important;padding:10mm 14mm 14mm 14mm!important}
+  [data-report-inner]{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;max-width:100%!important;padding:0 14mm 14mm 14mm!important}
   [data-pdf-hide]{display:none!important}
   iframe{display:none!important}
   [style*="position: fixed"],[style*="position:fixed"]{display:none!important}
   [style*="gradient"]{background:none!important}
-  /* Cover page - use #app prefix for higher specificity than any #app* rules */
+  /* Cover page - #app prefix for specificity over any #app* rules */
   #app [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;margin:-10mm -14mm 0 -14mm!important;padding:0!important;position:relative!important;z-index:99999!important;background:#fff!important;width:210mm!important;height:297mm!important;overflow:hidden!important;box-sizing:border-box!important}
   #app [data-cover-page]>div{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;width:100%!important;height:100%!important;min-height:0!important;max-height:100%!important;overflow:hidden!important;background:#fff!important;box-sizing:border-box!important;padding:40px 30px!important;text-align:center!important}
   /* Header - compact in print */
@@ -51,8 +51,8 @@ input[type="number"]{-moz-appearance:textfield}
   }
   /* Sections 2-7: keep entire section together on one page */
   [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
-  /* Force page break before section 2 - add top padding for margin effect */
-  [data-page-break]{break-before:page!important;page-break-before:always!important;padding-top:10mm!important}
+  /* Force page break before section 2 */
+  [data-page-break]{break-before:page!important;page-break-before:always!important}
   /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
