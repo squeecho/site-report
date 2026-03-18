@@ -29,19 +29,72 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:14mm 12mm}
-  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#111!important}
+  @page{size:A4;margin:16mm 18mm 20mm 18mm}
+  @page:first{margin-top:12mm}
+  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
-  #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#111!important}
+  #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
+  /* Hide interactive elements */
   [data-pdf-hide]{display:none!important}
   iframe{display:none!important}
   [style*="position: fixed"],[style*="position:fixed"]{display:none!important}
   [style*="gradient"]{background:none!important}
-  img{max-width:100%!important}
-  [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important;margin-bottom:12px!important}
-  [data-print-photo]{break-inside:avoid!important;page-break-inside:avoid!important}
-  [data-photo-grid]{grid-template-columns:repeat(4,1fr)!important;gap:8px!important}
+  /* Full width layout - override mobile 520px */
+  [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
+  [data-report-inner]{max-width:100%!important;padding:0!important}
+  /* Clean header */
+  [data-report-header]{padding:0 0 16pt!important;margin-bottom:20pt!important;border-bottom:2pt solid #1a1a1a!important}
+  [data-report-header] h1{font-size:20pt!important}
+  /* Section cards → clean print sections */
+  [data-print-section]{
+    background:none!important;border:none!important;border-radius:0!important;
+    padding:0!important;margin-bottom:16pt!important;
+    break-inside:avoid!important;page-break-inside:avoid!important;
+  }
+  /* Section title bar */
+  [data-sec-title]{
+    font-size:11pt!important;padding-bottom:6pt!important;margin-bottom:10pt!important;
+    border-bottom:1.5pt solid #333!important;
+  }
+  [data-sec-title] span:first-child{
+    background:#1a1a1a!important;color:#fff!important;
+    width:20pt!important;height:20pt!important;font-size:9pt!important;border-radius:4pt!important;
+  }
+  /* Data rows */
+  [data-report-row]{padding:6pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important}
+  [data-report-row]>div:first-child{font-size:8pt!important;color:#666!important;margin-bottom:2pt!important}
+  [data-report-row]>div:nth-child(2){font-size:10pt!important;color:#1a1a1a!important}
+  /* Photo grids - 2 columns for readability */
+  [data-photo-grid]{
+    grid-template-columns:repeat(2,1fr)!important;gap:8pt!important;
+  }
+  [data-photo-grid]>div{
+    aspect-ratio:4/3!important;border-radius:4pt!important;border:0.5pt solid #ccc!important;
+  }
+  [data-print-photo]{break-inside:avoid!important;page-break-inside:avoid!important;margin-bottom:10pt!important}
+  /* Inline row photos - slightly bigger */
+  [data-row-photos]{gap:6pt!important;margin-top:6pt!important}
+  [data-row-photos]>div{width:56pt!important;height:56pt!important;border-radius:4pt!important;border:0.5pt solid #ccc!important}
+  /* Sketch image */
+  [data-sketch-wrap]{border-radius:4pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
+  /* Measurement photos full width */
+  [data-measure-photo] [data-photo-grid]{
+    grid-template-columns:1fr!important;
+  }
+  [data-measure-photo] [data-photo-grid]>div{
+    aspect-ratio:auto!important;max-height:500pt!important;
+  }
+  /* Images */
+  img{max-width:100%!important;break-inside:avoid!important}
+  /* Footer */
+  [data-report-footer]{
+    margin-top:20pt!important;padding-top:12pt!important;
+    border-top:1pt solid #ccc!important;
+  }
+  /* Color printing */
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  /* Prevent orphan sections */
+  [data-print-section]:last-of-type{break-after:avoid!important}
 }
 </style>
 </head>
@@ -1812,11 +1865,11 @@ function exportPDF(){
 // ==================== Report View ====================
 function renderReport(){
   const info = data.info;
-  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh'}});
-  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'0 20px 40px'}});
+  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh'},'data-report-container':'1'});
+  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'0 20px 40px'},'data-report-inner':'1'});
 
   // Header
-  const headerDiv = h('div',{style:{padding:'24px 0 28px',borderBottom:`1px solid ${T.border2}`,marginBottom:'28px'}});
+  const headerDiv = h('div',{style:{padding:'24px 0 28px',borderBottom:`1px solid ${T.border2}`,marginBottom:'28px'},'data-report-header':'1'});
 
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
@@ -1837,7 +1890,7 @@ function renderReport(){
   // Section styles - card style for readability
   const secStyle = {marginBottom:'32px',padding:'20px',borderRadius:'14px',background:T.cardBg,border:`1px solid ${T.cardBorder}`};
   const secTitle = (num, text) => {
-    const el = h('div',{style:{fontSize:'15px',fontWeight:'700',color:T.text,marginBottom:'16px',paddingBottom:'10px',borderBottom:`1px solid ${T.border2}`,display:'flex',alignItems:'center',gap:'8px'}});
+    const el = h('div',{style:{fontSize:'15px',fontWeight:'700',color:T.text,marginBottom:'16px',paddingBottom:'10px',borderBottom:`1px solid ${T.border2}`,display:'flex',alignItems:'center',gap:'8px'},'data-sec-title':'1'});
     if(num) el.innerHTML = `<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:${T.accent};color:${T.accentText};font-size:11px;font-weight:700;flex-shrink:0">${num}</span> ${text}`;
     else el.textContent = text;
     return el;
@@ -1847,10 +1900,10 @@ function renderReport(){
   function makeRow(label,value,photos,allPhotos){
     // Hide completely empty rows (no value, no photos)
     if((!value || value==='—' || value.trim()==='') && (!photos || !photos.length)) return document.createTextNode('');
-    const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
+    const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'},'data-report-row':'1'});
     row.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">${label}</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:${value&&value!=='—'?'500':'400'}">${value||'—'}</div>`;
     if(photos?.length){
-      const pg = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}});
+      const pg = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'},'data-row-photos':'1'});
       photos.forEach((p,i)=>{
         const img = h('div',{style:{width:'64px',height:'64px',borderRadius:'8px',overflow:'hidden',background:T.bg4,cursor:'pointer',flexShrink:'0',border:`1px solid ${T.border2}`}});
         img.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
@@ -1960,7 +2013,7 @@ function renderReport(){
     skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
     skSec.appendChild(skTitle);
     if(data.sketch.drawing){
-      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#000'}});
+      const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#000'},'data-sketch-wrap':'1'});
       imgWrap.innerHTML = `<img src="${data.sketch.drawing}" style="width:100%;display:block">`;
       (data.sketch.doors||[]).forEach(dr=>{
         imgWrap.innerHTML += `<div style="position:absolute;left:${dr.x}%;top:${dr.y}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:#fff;background:rgba(0,0,0,0.7);padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600">출입구</div></div>`;
@@ -2047,11 +2100,13 @@ function renderReport(){
   mSec.appendChild(makeRow('천장고(하리)',data.measure.ceilingBeam?data.measure.ceilingBeam+'mm':''));
   mSec.appendChild(makeRow('천장고(천장마감)',data.measure.ceilingFinish?data.measure.ceilingFinish+'mm':''));
   mSec.appendChild(makeRow('마감 평수',data.measure.area?data.measure.area+'py':''));
-  mSec.appendChild(makePhotos(data.measure.floorPlan,'실측도면'));
+  const measurePhotos = makePhotos(data.measure.floorPlan,'실측도면');
+  if(measurePhotos.nodeType===1) measurePhotos.setAttribute('data-measure-photo','1');
+  mSec.appendChild(measurePhotos);
   inner.appendChild(mSec);
 
   // Footer
-  const footer = h('div',{style:{textAlign:'center',padding:'24px 0',marginTop:'8px'}});
+  const footer = h('div',{style:{textAlign:'center',padding:'24px 0',marginTop:'8px'},'data-report-footer':'1'});
   footer.innerHTML = `<div style="font-size:11px;color:${T.text4};letter-spacing:1px">iggg studio</div>`;
   inner.appendChild(footer);
 
