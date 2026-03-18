@@ -29,8 +29,8 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:6mm 14mm 6mm 14mm}
-  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
+  @page{size:A4;margin:0}
+  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important;padding:6mm 14mm 14mm 14mm!important;margin:0!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
   [data-pdf-hide]{display:none!important}
@@ -41,8 +41,8 @@ input[type="number"]{-moz-appearance:textfield}
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
   [data-report-inner]{max-width:100%!important;padding:0!important}
   /* Cover page - show in print, full page */
-  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important}
-  [data-cover-page]>div{min-height:calc(100vh - 12mm)!important}
+  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0!important}
+  [data-cover-page]>div{min-height:calc(100vh - 20mm)!important}
   /* Header - compact in print */
   [data-report-header]{padding:0 0 10pt!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
@@ -103,8 +103,7 @@ input[type="number"]{-moz-appearance:textfield}
   img{max-width:100%!important}
   /* Footer */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:block!important;position:fixed;bottom:0;left:0;right:0;text-align:center;padding-bottom:2mm}
-  [data-cover-page] ~ .print-page-footer{}
+  .print-page-footer{display:block!important;position:fixed;bottom:3mm;left:0;right:0;text-align:center;z-index:9999}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -1926,7 +1925,7 @@ function renderReport(){
     headerDiv.appendChild(navRow);
   }
 
-  headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px"><img src="${LOGO_ICON_URL}" style="height:18px;opacity:0.45"> <span>실측보고서(basic)</span></div>
+  headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px"><img src="${LOGO_ICON_URL}" style="height:18px;opacity:0.45;mix-blend-mode:multiply"> <span>실측보고서(basic)</span></div>
     <h1 style="font-size:24px;font-weight:700;margin:0;color:${T.text};line-height:1.3">${info.siteName||'실측보고서'}</h1>
     <div style="font-size:14px;color:${T.text3};margin-top:6px">${info.date} · ${info.manager||'담당자 미입력'}</div>`;
 
@@ -1942,7 +1941,7 @@ function renderReport(){
         ${info.address?`<div style="font-size:13px;color:#aaa;margin-top:8px">${info.address}</div>`:''}
       </div>
       <div style="padding-bottom:40px;text-align:center">
-        <img src="${LOGO_URL}" style="height:32px;margin-bottom:12px">
+        <img src="${LOGO_URL}" style="height:32px;margin-bottom:12px;mix-blend-mode:multiply">
         <div style="font-size:11px;color:#bbb;letter-spacing:1px">iggg.kr</div>
       </div>
       <div style="position:absolute;bottom:0;left:0;right:0;height:10mm;background:#fff"></div>
@@ -2181,13 +2180,18 @@ function renderReport(){
 
   // Footer (screen)
   const footer = h('div',{style:{textAlign:'center',padding:'24px 0',marginTop:'8px'},'data-report-footer':'1'});
-  footer.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:24px;opacity:0.35">`;
+  footer.innerHTML = `<img src="${LOGO_URL}" style="height:32px;opacity:0.35;mix-blend-mode:multiply">`;
   inner.appendChild(footer);
 
-  // Print-only repeating page footer (position:fixed via CSS class, not inline)
-  const printFooter = h('div',{className:'print-page-footer',style:{display:'none'}});
-  printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35">`;
-  inner.appendChild(printFooter);
+  // Print-only repeating page footer (appended to body for reliable position:fixed in print)
+  let printFooter = document.querySelector('.print-page-footer');
+  if(!printFooter){
+    printFooter = document.createElement('div');
+    printFooter.className = 'print-page-footer';
+    printFooter.style.display = 'none';
+    printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply">`;
+    document.body.appendChild(printFooter);
+  }
 
   // Save / Share buttons (only in edit mode)
   if(!viewMode){
