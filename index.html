@@ -29,7 +29,7 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:12mm 10mm}
+  @page{size:A4;margin:14mm 12mm}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#111!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#111!important}
@@ -37,7 +37,10 @@ input[type="number"]{-moz-appearance:textfield}
   iframe{display:none!important}
   [style*="position: fixed"],[style*="position:fixed"]{display:none!important}
   [style*="gradient"]{background:none!important}
-  img{max-width:100%!important;break-inside:avoid}
+  img{max-width:100%!important}
+  [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important;margin-bottom:12px!important}
+  [data-print-photo]{break-inside:avoid!important;page-break-inside:avoid!important}
+  [data-photo-grid]{grid-template-columns:repeat(4,1fr)!important;gap:8px!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -1744,13 +1747,22 @@ function renderStepMeasure(wrap){
 
 // ==================== PDF Export ====================
 function exportPDF(){
+  const info = data.info;
+  const dateStr = (info.date||'').replace(/[^0-9]/g,'');
+  const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
+  const pdfTitle = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
+
   // Temporarily switch to light theme for printing
   const origTheme = T;
+  const origTitle = document.title;
   const wasLight = (T === themes.light);
   if(!wasLight){
     T = themes.light;
     render();
   }
+
+  // Change page title (shows in print header & becomes default PDF filename)
+  document.title = pdfTitle;
 
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
@@ -1782,6 +1794,7 @@ function exportPDF(){
       window.print();
 
       // Restore everything
+      document.title = origTitle;
       document.documentElement.style.cssText = origHtml;
       document.body.style.cssText = origBody;
       saved.forEach(({el,...styles})=>{
@@ -1837,9 +1850,9 @@ function renderReport(){
     const row = h('div',{style:{padding:'10px 0',borderBottom:`1px solid ${T.border}`,fontSize:'14px'}});
     row.innerHTML = `<div style="color:${T.text3};font-size:12px;margin-bottom:4px">${label}</div><div style="color:${T.text};font-size:15px;line-height:1.5;font-weight:${value&&value!=='—'?'500':'400'}">${value||'—'}</div>`;
     if(photos?.length){
-      const pg = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}});
+      const pg = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}});
       photos.forEach((p,i)=>{
-        const img = h('div',{style:{width:'64px',height:'64px',borderRadius:'8px',overflow:'hidden',background:T.bg4,cursor:'pointer',flexShrink:'0'}});
+        const img = h('div',{style:{width:'64px',height:'64px',borderRadius:'8px',overflow:'hidden',background:T.bg4,cursor:'pointer',flexShrink:'0',border:`1px solid ${T.border2}`}});
         img.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
         img.onclick=()=>openLightbox(allPhotos||photos, allPhotos?allPhotos.indexOf(p):i);
         pg.appendChild(img);
@@ -1852,11 +1865,11 @@ function renderReport(){
   // Photo grid for report - larger, clickable
   function makePhotos(photos,label){
     if(!photos?.length) return document.createTextNode('');
-    const box = h('div',{style:{marginBottom:'16px'}});
+    const box = h('div',{style:{marginBottom:'16px'},'data-print-photo':'1'});
     box.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'8px',fontWeight:'600',letterSpacing:'0.5px'}},`${label} (${photos.length}장)`));
-    const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}});
+    const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'},'data-photo-grid':'1'});
     photos.forEach((p,i)=>{
-      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer'}});
+      const cell = h('div',{style:{aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4,cursor:'pointer',border:`1px solid ${T.border2}`}});
       cell.innerHTML = `<img src="${p}" style="width:100%;height:100%;object-fit:cover">`;
       cell.onclick=()=>openLightbox(photos,i);
       grid.appendChild(cell);
@@ -1869,7 +1882,7 @@ function renderReport(){
   function makeMapLink(address){
     if(!address) return '';
     const encoded = encodeURIComponent(address);
-    return `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><a href="https://map.naver.com/v5/search/${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">🗺️ 네이버 지도</a><a href="https://map.kakao.com/?q=${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">📍 카카오맵</a></div>`;
+    return `<div data-pdf-hide="1" style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap"><a href="https://map.naver.com/v5/search/${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">🗺️ 네이버 지도</a><a href="https://map.kakao.com/?q=${encoded}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;background:${T.bg4};color:${T.text2};font-size:12px;text-decoration:none;font-weight:500">📍 카카오맵</a></div>`;
   }
 
   // Address row with map link
@@ -1891,7 +1904,7 @@ function renderReport(){
   }
 
   // === Info section ===
-  const infoSec = h('div',{style:secStyle});
+  const infoSec = h('div',{style:secStyle,'data-print-section':'1'});
   infoSec.appendChild(secTitle('','기초 정보'));
   infoSec.appendChild(makeRow('실측날짜',info.date));
   infoSec.appendChild(makeRow('현장명',info.siteName));
@@ -1914,7 +1927,7 @@ function renderReport(){
   inner.appendChild(photoSec);
 
   // === Fire ===
-  const fireSec = h('div',{style:secStyle});
+  const fireSec = h('div',{style:secStyle,'data-print-section':'1'});
   fireSec.appendChild(secTitle('2','소방완비 대상여부'));
   fireSec.appendChild(makeRow('완비대상 여부',data.fire.compliance));
   fireSec.appendChild(makeRow('스프링클러 여부',data.fire.sprinkler));
@@ -1942,7 +1955,7 @@ function renderReport(){
   const facPins = facPinDefs.filter(p=>p.pin&&!sketchPinTypes.has(p.type));
 
   if(data.sketch.drawing || (data.sketch.pins||[]).length>0 || (data.sketch.doors||[]).length>0 || facPins.length>0){
-    const skSec = h('div',{style:secStyle});
+    const skSec = h('div',{style:secStyle,'data-print-section':'1'});
     const skTitle = secTitle('','설비 요약 배치도');
     skTitle.innerHTML += `<span style="font-size:11px;color:${T.text4};font-weight:400;margin-left:4px">· 참고용</span>`;
     skSec.appendChild(skTitle);
@@ -1969,7 +1982,7 @@ function renderReport(){
   }
 
   // === Facility ===
-  const facSec = h('div',{style:secStyle});
+  const facSec = h('div',{style:secStyle,'data-print-section':'1'});
   facSec.appendChild(secTitle('3','기초설비 관련'));
   facSec.appendChild(makeRow('수도계량기 위치',data.facility.waterMeter,data.facility.waterMeterPhotos));
   facSec.appendChild(makeRow('급수 위치',data.facility.waterSupply,data.facility.waterSupplyPhotos));
@@ -1982,7 +1995,7 @@ function renderReport(){
   inner.appendChild(facSec);
 
   // === Electric ===
-  const elecSec = h('div',{style:secStyle});
+  const elecSec = h('div',{style:secStyle,'data-print-section':'1'});
   elecSec.appendChild(secTitle('4','전기, 냉난방'));
   const panelVal = (data.electric.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.includes('A')).join(' + ');
   const panelLoc = data.electric.panelLocation||'';
@@ -1993,7 +2006,7 @@ function renderReport(){
   inner.appendChild(elecSec);
 
   // === Construction ===
-  const conSec = h('div',{style:secStyle});
+  const conSec = h('div',{style:secStyle,'data-print-section':'1'});
   conSec.appendChild(secTitle('5','공사관련 체크사항'));
   const parkingDisplay = [data.construction.parking, data.construction.parkingDetail].filter(Boolean).join(' / ');
   conSec.appendChild(makeRow('주차관리',parkingDisplay,data.construction.parkingPhotos));
@@ -2020,7 +2033,7 @@ function renderReport(){
   inner.appendChild(conSec);
 
   // === Etc ===
-  const etcSec = h('div',{style:secStyle});
+  const etcSec = h('div',{style:secStyle,'data-print-section':'1'});
   etcSec.appendChild(secTitle('6','기타'));
   etcSec.appendChild(makeRow('불법건축물',data.etc.illegalBuilding,data.etc.illegalBuildingPhotos));
   etcSec.appendChild(makeRow('건물 누수',data.etc.leak,data.etc.leakPhotos));
@@ -2028,7 +2041,7 @@ function renderReport(){
   inner.appendChild(etcSec);
 
   // === Measure ===
-  const mSec = h('div',{style:secStyle});
+  const mSec = h('div',{style:secStyle,'data-print-section':'1'});
   mSec.appendChild(secTitle('7','실측도'));
   mSec.appendChild(makeRow('천장고(슬라브)',data.measure.ceilingSlab?data.measure.ceilingSlab+'mm':''));
   mSec.appendChild(makeRow('천장고(하리)',data.measure.ceilingBeam?data.measure.ceilingBeam+'mm':''));
