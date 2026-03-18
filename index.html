@@ -29,7 +29,7 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:0}
+  @page{size:A4;margin:6mm 14mm 12mm 14mm}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
@@ -39,12 +39,12 @@ input[type="number"]{-moz-appearance:textfield}
   [style*="gradient"]{background:none!important}
   /* Full A4 width */
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
-  [data-report-inner]{max-width:100%!important;padding:6mm 14mm 15mm 14mm!important}
+  [data-report-inner]{max-width:100%!important;padding:0!important}
   /* Cover page - show in print, full page */
-  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;margin:-6mm -14mm 0 -14mm!important;padding:0 14mm!important;background:#fff!important}
-  [data-cover-page]>div{height:297mm!important;min-height:0!important;max-height:297mm!important;overflow:hidden!important;background:#fff!important;box-sizing:border-box!important}
+  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0!important;margin:0!important;background:#fff!important}
+  [data-cover-page]>div{min-height:calc(100vh - 18mm)!important;background:#fff!important;box-sizing:border-box!important}
   /* Header - compact in print */
-  [data-report-header]{padding:8mm 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
+  [data-report-header]{padding:0 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
@@ -53,7 +53,7 @@ input[type="number"]{-moz-appearance:textfield}
   /* Sections 2-7: keep entire section together on one page */
   [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
   /* Force page break before section 2 */
-  [data-page-break]{break-before:page!important;page-break-before:always!important;padding-top:8mm!important}
+  [data-page-break]{break-before:page!important;page-break-before:always!important}
   /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
@@ -103,7 +103,8 @@ input[type="number"]{-moz-appearance:textfield}
   img{max-width:100%!important}
   /* Footer */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:block!important;position:fixed;bottom:3mm;left:0;right:0;text-align:center;z-index:9999}
+  .print-page-footer{display:none!important}
+  .print-section-footer{display:block!important;text-align:center;padding-top:12pt}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -380,7 +381,7 @@ async function saveReport(){
     reportsList = null;
     // Update local data with uploaded URLs to avoid re-upload on next save
     data = JSON.parse(JSON.stringify(uploadData));
-    clearDraft();
+    clearCurrentDraft();
     render();
     showShareModal(shareUrl, reportId);
 
@@ -655,29 +656,36 @@ function renderHome(){
     editingId = null;
     step = 0;
     showReport = false;
-    clearDraft();
+    currentDraftId = genDraftId(); // new draft gets new ID
     navigateTo('wizard');
   };
   inner.appendChild(newBtn);
 
-  // Draft resume
-  var draft = loadDraft();
-  if(draft && draft.data.info.siteName){
-    var draftCard = h('div',{style:{padding:'16px 18px',borderRadius:'14px',background:T.infoBg,border:'1px solid '+T.infoBorder,marginBottom:'24px',cursor:'pointer'}});
-    var mins = Math.round((Date.now()-draft.ts)/60000);
-    var timeStr = mins<60 ? mins+'분 전' : Math.round(mins/60)+'시간 전';
-    draftCard.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:14px;font-weight:600;color:'+T.text+';margin-bottom:4px">📝 작성 중인 보고서</div><div style="font-size:13px;color:'+T.text2+'">'+draft.data.info.siteName+' · Step '+(draft.step+1)+'/9 · '+timeStr+'</div></div><div style="font-size:13px;color:'+T.accent+';font-weight:600">이어서 →</div></div>';
-    draftCard.onclick = function(){
-      data = draft.data;
-      step = draft.step;
-      editingId = draft.editingId;
-      showReport = false;
-      navigateTo('wizard');
-    };
-    var delDraft = h('button',{style:{marginTop:'8px',background:'none',border:'none',color:T.text4,fontSize:'12px',cursor:'pointer',padding:'0'}},'삭제');
-    delDraft.onclick = function(e){ e.stopPropagation(); clearDraft(); render(); };
-    draftCard.appendChild(delDraft);
-    inner.appendChild(draftCard);
+  // Draft resume — show ALL drafts
+  var drafts = loadAllDrafts();
+  if(drafts.length > 0){
+    var draftHeader = h('div',{style:{fontSize:'14px',fontWeight:'600',color:T.text2,marginBottom:'12px'}});
+    draftHeader.textContent = '📝 작성 중인 보고서 (' + drafts.length + ')';
+    inner.appendChild(draftHeader);
+    drafts.forEach(function(draft){
+      var draftCard = h('div',{style:{padding:'16px 18px',borderRadius:'14px',background:T.infoBg,border:'1px solid '+T.infoBorder,marginBottom:'12px',cursor:'pointer'}});
+      var mins = Math.round((Date.now()-draft.ts)/60000);
+      var timeStr = mins<60 ? mins+'분 전' : mins<1440 ? Math.round(mins/60)+'시간 전' : Math.round(mins/1440)+'일 전';
+      draftCard.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:14px;font-weight:600;color:'+T.text+';margin-bottom:4px">'+draft.data.info.siteName+'</div><div style="font-size:12px;color:'+T.text2+'">Step '+(draft.step+1)+'/9 · '+timeStr+'</div></div><div style="font-size:13px;color:'+T.accent+';font-weight:600">이어서 →</div></div>';
+      draftCard.onclick = function(){
+        data = draft.data;
+        step = draft.step;
+        editingId = draft.editingId;
+        currentDraftId = draft.id;
+        showReport = false;
+        navigateTo('wizard');
+      };
+      var delDraft = h('button',{style:{marginTop:'8px',background:'none',border:'none',color:T.text4,fontSize:'12px',cursor:'pointer',padding:'0'}},'삭제');
+      delDraft.onclick = function(e){ e.stopPropagation(); clearDraft(draft.id); render(); };
+      draftCard.appendChild(delDraft);
+      inner.appendChild(draftCard);
+    });
+    inner.appendChild(h('div',{style:{marginBottom:'20px'}}));
   }
 
   // Reports list
@@ -1918,7 +1926,7 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentView='home';history.replaceState({view:'home'},'',location.pathname);render(true);};
+    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentDraftId=null;currentView='home';history.replaceState({view:'home'},'',location.pathname);render(true);};
     navRow.appendChild(homeBtn);
     headerDiv.appendChild(navRow);
   }
@@ -2186,38 +2194,64 @@ function renderReport(){
   footer.innerHTML = `<img src="${LOGO_URL}" style="height:32px;opacity:0.35;mix-blend-mode:multiply">`;
   inner.appendChild(footer);
 
-  // Print-only repeating page footer (position:fixed via CSS class)
-  let printFooter = document.querySelector('.print-page-footer');
-  if(!printFooter){
-    printFooter = document.createElement('div');
-    printFooter.className = 'print-page-footer';
-    printFooter.style.display = 'none';
-    printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply">`;
-    document.body.appendChild(printFooter);
-  }
+  // Print-only section footers: add logo at the end of each major section
+  const sectionFooterHTML = `<div class="print-section-footer" style="display:none"><img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply"></div>`;
+  // Add footer after header section
+  headerDiv.insertAdjacentHTML('afterend', sectionFooterHTML);
+  // Add footer at end of each print section
+  inner.querySelectorAll('[data-print-section],[data-photo-section]').forEach(sec=>{
+    sec.insertAdjacentHTML('afterend', sectionFooterHTML);
+  });
 
   // Bottom action buttons (only in edit mode)
   if(!viewMode){
     const btnArea = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
 
-    const pdfBtn = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'📄 PDF');
-    pdfBtn.onclick=exportPDF;
-    btnArea.appendChild(pdfBtn);
+    if(editingId){
+      // === Existing report: PDF / 공유링크 / 편집하기 (all equal style) ===
+      const btnStyle = `flex:1;padding:14px 0;borderRadius:12px;border:1px solid ${T.border3};background:transparent;color:${T.text2};fontSize:15px;cursor:pointer;fontWeight:500;text-align:center`;
 
-    const shareBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
-    if(saving){
-      shareBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
-      shareBtn.style.opacity='0.7';
-      shareBtn.style.pointerEvents='none';
+      const pdfBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'📄 PDF');
+      pdfBtn.onclick=exportPDF;
+      btnArea.appendChild(pdfBtn);
+
+      const shareBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'🔗 공유링크');
+      shareBtn.onclick = ()=>{
+        const url=`${location.origin}/report/${editingId}`;
+        navigator.clipboard.writeText(url).then(()=>{
+          // Toast message
+          const toast = h('div',{style:{position:'fixed',bottom:'100px',left:'50%',transform:'translateX(-50%)',background:'rgba(0,0,0,0.8)',color:'#fff',padding:'12px 24px',borderRadius:'10px',fontSize:'14px',zIndex:'9999',transition:'opacity 0.3s',whiteSpace:'nowrap'}});
+          toast.textContent = '✅ 공유링크가 클립보드에 복사되었습니다';
+          document.body.appendChild(toast);
+          setTimeout(()=>{toast.style.opacity='0';setTimeout(()=>toast.remove(),300);},2000);
+        }).catch(()=>{
+          // Fallback: show share modal
+          showShareModal(url, editingId);
+        });
+      };
+      btnArea.appendChild(shareBtn);
+
+      const editBtn2 = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'✏️ 편집하기');
+      editBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
+      btnArea.appendChild(editBtn2);
+
     } else {
-      shareBtn.textContent = editingId ? '공유링크' : '저장 & 공유';
-      shareBtn.onclick = editingId ? ()=>{ const url=`${location.origin}/report/${editingId}`; showShareModal(url, editingId); } : saveReport;
-    }
-    btnArea.appendChild(shareBtn);
+      // === New report preview: 편집으로 돌아가기 / 저장 & 공유 ===
+      const backBtn = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'← 편집으로 돌아가기');
+      backBtn.onclick=()=>{showReport=false;navigateTo('wizard');};
+      btnArea.appendChild(backBtn);
 
-    const editBtn2 = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'편집');
-    editBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
-    btnArea.appendChild(editBtn2);
+      const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
+      if(saving){
+        saveBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
+        saveBtn.style.opacity='0.7';
+        saveBtn.style.pointerEvents='none';
+      } else {
+        saveBtn.textContent = '저장 & 공유';
+        saveBtn.onclick = saveReport;
+      }
+      btnArea.appendChild(saveBtn);
+    }
 
     inner.style.paddingBottom = '100px';
     container.appendChild(inner);
@@ -2263,40 +2297,113 @@ window.addEventListener('popstate', e => {
 });
 
 // ==================== Auto Save (localStorage) ====================
-var AUTOSAVE_KEY = 'iggg_report_draft';
+var DRAFTS_KEY = 'iggg_report_drafts';
+var currentDraftId = null; // track which draft is being edited
+
+function genDraftId(){ return 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); }
+
+function getAllDrafts(){
+  try {
+    var raw = localStorage.getItem(DRAFTS_KEY);
+    if(!raw) return {};
+    var drafts = JSON.parse(raw);
+    // Clean up drafts older than 7 days
+    var now = Date.now();
+    var changed = false;
+    Object.keys(drafts).forEach(function(k){
+      if(now - drafts[k].ts > 7*24*60*60*1000){ delete drafts[k]; changed = true; }
+    });
+    if(changed) localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    return drafts;
+  } catch(e){ return {}; }
+}
 
 function autoSave(){
   try {
-    var draft = {
+    if(!currentDraftId) currentDraftId = genDraftId();
+    var drafts = getAllDrafts();
+    drafts[currentDraftId] = {
       data: data,
       step: step,
       editingId: editingId,
       ts: Date.now()
     };
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(draft));
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch(e){
+    // localStorage full — try removing oldest draft and retry
+    try {
+      var drafts = getAllDrafts();
+      var keys = Object.keys(drafts);
+      if(keys.length > 1){
+        keys.sort(function(a,b){ return drafts[a].ts - drafts[b].ts; });
+        delete drafts[keys[0]];
+        drafts[currentDraftId] = { data: data, step: step, editingId: editingId, ts: Date.now() };
+        localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+      }
+    } catch(e2){}
+  }
+}
+
+function loadDraft(){ return null; } // legacy compat — not used anymore
+
+function loadAllDrafts(){
+  var drafts = getAllDrafts();
+  var arr = [];
+  Object.keys(drafts).forEach(function(k){
+    var d = drafts[k];
+    if(d.data && d.data.info && d.data.info.siteName){
+      arr.push({ id: k, data: d.data, step: d.step, editingId: d.editingId, ts: d.ts });
+    }
+  });
+  arr.sort(function(a,b){ return b.ts - a.ts; }); // newest first
+  return arr;
+}
+
+function clearDraft(draftId){
+  try {
+    if(draftId){
+      var drafts = getAllDrafts();
+      delete drafts[draftId];
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    }
+    if(currentDraftId === draftId) currentDraftId = null;
   } catch(e){}
 }
 
-function loadDraft(){
-  try {
-    var raw = localStorage.getItem(AUTOSAVE_KEY);
-    if(!raw) return null;
-    var draft = JSON.parse(raw);
-    if(!draft.data || !draft.data.info) return null;
-    // Ignore drafts older than 7 days
-    if(Date.now() - draft.ts > 7*24*60*60*1000){ localStorage.removeItem(AUTOSAVE_KEY); return null; }
-    return draft;
-  } catch(e){ return null; }
+function clearCurrentDraft(){
+  if(currentDraftId) clearDraft(currentDraftId);
+  currentDraftId = null;
 }
 
-function clearDraft(){
-  try { localStorage.removeItem(AUTOSAVE_KEY); } catch(e){}
-}
+// Migrate old single-draft format
+try {
+  var oldDraft = localStorage.getItem('iggg_report_draft');
+  if(oldDraft){
+    var parsed = JSON.parse(oldDraft);
+    if(parsed && parsed.data && parsed.data.info){
+      var drafts = getAllDrafts();
+      drafts[genDraftId()] = parsed;
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    }
+    localStorage.removeItem('iggg_report_draft');
+  }
+} catch(e){}
 
 // Auto-save every 3 seconds when editing
 setInterval(function(){
   if(currentView==='wizard' && isUnlocked) autoSave();
 }, 3000);
+
+// CRITICAL: Save immediately when phone call / app switch / page hide
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden' && currentView==='wizard' && isUnlocked) autoSave();
+});
+window.addEventListener('pagehide', function(){
+  if(currentView==='wizard' && isUnlocked) autoSave();
+});
+window.addEventListener('beforeunload', function(){
+  if(currentView==='wizard' && isUnlocked) autoSave();
+});
 
 // Set initial state
 history.replaceState({view:'home'},'');
