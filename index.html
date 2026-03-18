@@ -43,13 +43,12 @@ input[type="number"]{-moz-appearance:textfield}
   /* Header */
   [data-report-header]{padding:0 0 14pt!important;margin-bottom:18pt!important;border-bottom:2pt solid #1a1a1a!important}
   [data-report-header] h1{font-size:20pt!important}
-  /* ALL card sections -> flat print */
+  /* ALL card sections flat, no break constraints */
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
     padding:0!important;margin-bottom:14pt!important;
-    break-inside:auto!important;page-break-inside:auto!important;
   }
-  /* Section title stays with first content row */
+  /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
     border-bottom:1.5pt solid #333!important;
@@ -62,38 +61,32 @@ input[type="number"]{-moz-appearance:textfield}
   [data-report-row]{padding:5pt 0!important;border-bottom:0.5pt solid #ddd!important;font-size:9.5pt!important}
   [data-report-row]>div:first-child{font-size:8pt!important;color:#666!important;margin-bottom:2pt!important}
   [data-report-row]>div:nth-child(2){font-size:10pt!important;color:#1a1a1a!important}
-  /* Photo label containers can break across pages */
-  [data-print-photo]{break-inside:auto!important;page-break-inside:auto!important;margin-bottom:8pt!important}
-  /* Photo grid wrapper */
+  /* Photo label */
+  [data-print-photo]{margin-bottom:8pt!important}
+  /* Photo grid */
   [data-photo-grid]{gap:6pt!important}
-  /* Each photo ROW (2 photos) stays together on same page */
-  [data-photo-row]{
-    gap:6pt!important;
-    break-inside:avoid!important;page-break-inside:avoid!important;
-    margin-bottom:0!important;
-    align-items:center!important;
-  }
-  /* Photo cells: compact, cover-crop for consistent sizing */
+  /* Photo rows - NO break constraints to prevent overlap */
+  [data-photo-row]{gap:6pt!important;align-items:center!important}
+  /* Photo cells: contain mode for mixed portrait/landscape */
   [data-photo-cell]{
-    aspect-ratio:auto!important;
-    height:130pt!important;
+    aspect-ratio:auto!important;height:155pt!important;
     border-radius:3pt!important;border:0.5pt solid #ddd!important;
-    background:transparent!important;
+    background:#fafafa!important;
   }
-  [data-photo-cell] img{
-    object-fit:cover!important;width:100%!important;height:100%!important;
-  }
-  /* Row inline photos (facility/construction) - much bigger */
+  /* Single odd photo smaller */
+  [data-photo-cell]:only-child{height:120pt!important}
+  [data-photo-cell] img{object-fit:contain!important;width:100%!important;height:100%!important}
+  /* Row inline photos */
   [data-row-photos]{gap:8pt!important;margin-top:8pt!important}
   [data-row-photos]>div{
     width:120pt!important;height:90pt!important;
     border-radius:3pt!important;border:0.5pt solid #ddd!important;
-    background:transparent!important;
+    background:#fafafa!important;
   }
-  [data-row-photos]>div img{object-fit:cover!important}
+  [data-row-photos]>div img{object-fit:contain!important}
   /* Sketch */
-  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;break-inside:avoid!important;page-break-inside:avoid!important;background:#f0f0f0!important}
-  /* Measurement floor plan - single column full width */
+  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;background:#f0f0f0!important}
+  /* Measurement floor plan */
   [data-measure-photo] [data-photo-row]{flex-direction:column!important}
   [data-measure-photo] [data-photo-cell]{height:auto!important;max-height:520pt!important;flex:none!important;background:transparent!important}
   [data-measure-photo] [data-photo-cell] img{object-fit:contain!important}
