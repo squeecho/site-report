@@ -50,6 +50,8 @@ input[type="number"]{-moz-appearance:textfield}
   }
   /* Sections 2-7: keep entire section together on one page */
   [data-print-section]{break-inside:avoid!important;page-break-inside:avoid!important}
+  /* Force page break before section 2 */
+  [data-page-break]{break-before:page!important;page-break-before:always!important}
   /* Section titles */
   [data-sec-title]{
     font-size:11pt!important;padding-bottom:5pt!important;margin-bottom:8pt!important;
@@ -2027,7 +2029,7 @@ function renderReport(){
   inner.appendChild(photoSec);
 
   // === Fire ===
-  const fireSec = h('div',{style:secStyle,'data-print-section':'1'});
+  const fireSec = h('div',{style:secStyle,'data-print-section':'1','data-page-break':'1'});
   fireSec.appendChild(secTitle('2','소방완비 대상여부'));
   fireSec.appendChild(makeRow('완비대상 여부',data.fire.compliance));
   fireSec.appendChild(makeRow('스프링클러 여부',data.fire.sprinkler));
