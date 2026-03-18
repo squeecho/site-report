@@ -29,8 +29,9 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:0}
-  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important;padding:6mm 14mm 14mm 14mm!important;margin:0!important}
+  @page{size:A4;margin:6mm 14mm 15mm 14mm}
+  @page:first{margin-bottom:6mm}
+  html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
   [data-pdf-hide]{display:none!important}
@@ -42,7 +43,7 @@ input[type="number"]{-moz-appearance:textfield}
   [data-report-inner]{max-width:100%!important;padding:0!important}
   /* Cover page - show in print, full page */
   [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0!important}
-  [data-cover-page]>div{min-height:calc(100vh - 20mm)!important}
+  [data-cover-page]>div{min-height:calc(100vh - 12mm)!important}
   /* Header - compact in print */
   [data-report-header]{padding:0 0 10pt!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
@@ -103,11 +104,7 @@ input[type="number"]{-moz-appearance:textfield}
   img{max-width:100%!important}
   /* Footer */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:none!important}
-  .print-table{width:100%!important;display:table!important}
-  .print-table-body{display:table-row-group!important}
-  .print-table-foot{display:table-footer-group!important;text-align:center}
-  .print-table-foot td{padding-top:8pt;padding-bottom:2mm}
+  .print-page-footer{display:block!important;position:fixed;bottom:0;left:0;right:0;text-align:center;padding-bottom:2mm;z-index:9999}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
 </style>
@@ -2186,29 +2183,14 @@ function renderReport(){
   footer.innerHTML = `<img src="${LOGO_URL}" style="height:32px;opacity:0.35;mix-blend-mode:multiply">`;
   inner.appendChild(footer);
 
-  // Print-only repeating page footer using table structure
-  // Wrap non-cover content in table so tfoot repeats on every page (except cover)
-  {
-    const coverEl = inner.querySelector('[data-cover-page]');
-    const tbl = document.createElement('table');
-    tbl.className = 'print-table';
-    tbl.style.cssText = 'width:100%;border-collapse:collapse';
-    const tfoot = document.createElement('tfoot');
-    tfoot.className = 'print-table-foot';
-    tfoot.style.display = 'none';
-    tfoot.innerHTML = `<tr><td><img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply"></td></tr>`;
-    const tbody = document.createElement('tbody');
-    tbody.className = 'print-table-body';
-    const td = document.createElement('td');
-    // Move all non-cover children into the table
-    const children = Array.from(inner.children).filter(c => c !== coverEl);
-    children.forEach(c => td.appendChild(c));
-    const tr = document.createElement('tr');
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    tbl.appendChild(tfoot);
-    tbl.appendChild(tbody);
-    inner.appendChild(tbl);
+  // Print-only repeating page footer (position:fixed via CSS class)
+  let printFooter = document.querySelector('.print-page-footer');
+  if(!printFooter){
+    printFooter = document.createElement('div');
+    printFooter.className = 'print-page-footer';
+    printFooter.style.display = 'none';
+    printFooter.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:20px;opacity:0.35;mix-blend-mode:multiply">`;
+    document.body.appendChild(printFooter);
   }
 
   // Save / Share buttons (only in edit mode)
