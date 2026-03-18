@@ -39,12 +39,12 @@ input[type="number"]{-moz-appearance:textfield}
   [style*="gradient"]{background:none!important}
   /* Full A4 width */
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
-  [data-report-inner]{max-width:100%!important;padding:0 14mm 12mm 14mm!important}
+  [data-report-inner]{max-width:100%!important;padding:6mm 14mm 15mm 14mm!important}
   /* Cover page - show in print, full page */
-  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0 14mm!important}
-  [data-cover-page]>div{min-height:100vh!important}
+  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;padding:0 14mm!important;position:relative;z-index:99999;background:#fff!important}
+  [data-cover-page]>div{min-height:100vh!important;background:#fff!important}
   /* Header - compact in print */
-  [data-report-header]{padding:6mm 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
+  [data-report-header]{padding:0 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
   [data-print-section],[data-photo-section]{
     background:none!important;border:none!important;border-radius:0!important;
@@ -1918,16 +1918,19 @@ function renderReport(){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
     homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;currentView='home';history.pushState({view:'home'},'');render();};
-    const editBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'✏️ 편집');
-    editBtn.onclick=()=>{showReport=false;navigateTo('wizard');};
     navRow.appendChild(homeBtn);
-    navRow.appendChild(editBtn);
     headerDiv.appendChild(navRow);
   }
 
-  headerDiv.innerHTML += `<div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px"><img src="${LOGO_ICON_URL}" style="height:18px;opacity:0.45;mix-blend-mode:multiply"> <span>실측보고서(basic)</span></div>
-    <h1 style="font-size:24px;font-weight:700;margin:0;color:${T.text};line-height:1.3">${info.siteName||'실측보고서'}</h1>
-    <div style="font-size:14px;color:${T.text3};margin-top:6px">${info.date} · ${info.manager||'담당자 미입력'}</div>`;
+  const logoRow = h('div',{style:{fontSize:'11px',color:T.text3,letterSpacing:'2px',textTransform:'uppercase',marginBottom:'8px',display:'flex',alignItems:'center',gap:'6px'}});
+  logoRow.innerHTML = `<img src="${LOGO_ICON_URL}" style="height:18px;opacity:0.45;mix-blend-mode:multiply"> <span>실측보고서(basic)</span>`;
+  headerDiv.appendChild(logoRow);
+  const titleEl = h('h1',{style:{fontSize:'24px',fontWeight:'700',margin:'0',color:T.text,lineHeight:'1.3'}});
+  titleEl.textContent = info.siteName||'실측보고서';
+  headerDiv.appendChild(titleEl);
+  const metaEl = h('div',{style:{fontSize:'14px',color:T.text3,marginTop:'6px'}});
+  metaEl.textContent = `${info.date} · ${info.manager||'담당자 미입력'}`;
+  headerDiv.appendChild(metaEl);
 
   // === Cover page (print only) ===
   const cover = h('div',{style:{display:'none'},'data-cover-page':'1'});
@@ -2192,27 +2195,28 @@ function renderReport(){
     document.body.appendChild(printFooter);
   }
 
-  // Save / Share buttons (only in edit mode)
+  // Bottom action buttons (only in edit mode)
   if(!viewMode){
     const btnArea = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
-    const backBtn2 = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'편집');
-    backBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
-    btnArea.appendChild(backBtn2);
 
     const pdfBtn = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'📄 PDF');
     pdfBtn.onclick=exportPDF;
     btnArea.appendChild(pdfBtn);
 
-    const saveBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
+    const shareBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
     if(saving){
-      saveBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
-      saveBtn.style.opacity='0.7';
-      saveBtn.style.pointerEvents='none';
+      shareBtn.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
+      shareBtn.style.opacity='0.7';
+      shareBtn.style.pointerEvents='none';
     } else {
-      saveBtn.textContent='저장 & 공유';
-      saveBtn.onclick=saveReport;
+      shareBtn.textContent = editingId ? '공유링크' : '저장 & 공유';
+      shareBtn.onclick = editingId ? ()=>{ const url=`${location.origin}/report/${editingId}`; showShareModal(url, editingId); } : saveReport;
     }
-    btnArea.appendChild(saveBtn);
+    btnArea.appendChild(shareBtn);
+
+    const editBtn2 = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'편집');
+    editBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
+    btnArea.appendChild(editBtn2);
 
     inner.style.paddingBottom = '100px';
     container.appendChild(inner);
