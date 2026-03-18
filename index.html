@@ -29,7 +29,7 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
-  @page{size:A4;margin:8mm 0 12mm 0}
+  @page{size:A4;margin:0}
   html,body{width:100%!important;height:auto!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important;font-size:10pt!important}
   #app,#app *{overflow:visible!important}
   #app,#app>div,#app>div>div,#app>div>div>div{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:#fff!important;color:#1a1a1a!important}
@@ -39,11 +39,10 @@ input[type="number"]{-moz-appearance:textfield}
   [style*="gradient"]{background:none!important}
   /* Full A4 width */
   [data-report-container]{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important}
-  [data-report-inner]{max-width:100%!important;padding:0 14mm 14mm 14mm!important}
-  /* Cover page - show in print, full page */
-  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;margin:-8mm -14mm -12mm -14mm!important;padding:0 14mm!important;position:relative!important;z-index:99999!important;background:#fff!important}
-  [data-cover-page]>div{height:289mm!important;min-height:0!important;max-height:289mm!important;overflow:hidden!important;background:#fff!important;box-sizing:border-box!important;padding:30px 20px!important}
-  #app [data-cover-page]>div{height:289mm!important;max-height:289mm!important;overflow:hidden!important}
+  [data-report-inner]{max-width:100%!important;padding:8mm 14mm 14mm 14mm!important}
+  /* Cover page - show in print, full page, exactly 1 A4 page */
+  [data-cover-page]{display:block!important;break-after:page!important;page-break-after:always!important;margin:-8mm -14mm 0 -14mm!important;padding:0!important;position:relative!important;z-index:99999!important;background:#fff!important;width:210mm!important;height:297mm!important;overflow:hidden!important;box-sizing:border-box!important}
+  [data-cover-page]>div{height:100%!important;min-height:0!important;max-height:100%!important;overflow:hidden!important;background:#fff!important;box-sizing:border-box!important;padding:30px 30px!important}
   /* Header - compact in print */
   [data-report-header]{padding:0 0 10pt 0!important;margin-bottom:14pt!important;border-bottom:1.5pt solid #1a1a1a!important}
   /* Card sections flat */
@@ -104,7 +103,7 @@ input[type="number"]{-moz-appearance:textfield}
   img{max-width:100%!important}
   /* Footer */
   [data-report-footer]{display:none!important}
-  .print-page-footer{display:block!important;position:fixed;bottom:3mm;left:auto;right:14mm;text-align:right;z-index:9999}
+  .print-page-footer{display:block!important;position:fixed;bottom:5mm;right:14mm;left:auto;text-align:right;z-index:9999}
   .print-section-footer{display:none!important}
   *{color-adjust:exact!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 }
