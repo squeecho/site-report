@@ -39,8 +39,6 @@ input[type="number"]{-moz-appearance:textfield}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <!-- Daum Postcode -->
 <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-<!-- html2pdf for PDF export -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <script>
 // ==================== Firebase Init ====================
@@ -1733,279 +1731,172 @@ function renderStepMeasure(wrap){
 }
 
 // ==================== PDF Export ====================
-async function imgToBase64(url){
-  if(!url || url.startsWith('data:')) return url;
-  try {
-    const resp = await fetch(url);
-    const blob = await resp.blob();
-    return new Promise((resolve)=>{
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(blob);
-    });
-  } catch(e){ console.warn('img fetch fail:',url,e); return ''; }
-}
-
-async function convertAllImages(dataObj){
-  // Collect all image URL fields that need conversion
-  const jobs = [];
-  const results = {};
-
-  function queue(key, url){
-    if(url && typeof url==='string' && (url.startsWith('http')||url.startsWith('data:'))){
-      const idx = jobs.length;
-      jobs.push(imgToBase64(url));
-      results[key] = idx;
-    }
-  }
-  function queueArr(key, arr){
-    if(!arr?.length) return;
-    arr.forEach((url,i)=>{ queue(`${key}[${i}]`, url); });
-  }
-
-  // Photos
-  queueArr('photos.exterior', dataObj.photos.exterior);
-  queueArr('photos.interior', dataObj.photos.interior);
-  // Sketch
-  queue('sketch.drawing', dataObj.sketch.drawing);
-  // Facility
-  const facPhotoKeys = ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos'];
-  facPhotoKeys.forEach(k=> queueArr('facility.'+k, dataObj.facility[k]));
-  // Electric
-  ['panelPhotos','hvacPhotos','notesPhotos'].forEach(k=> queueArr('electric.'+k, dataObj.electric[k]));
-  // Construction
-  ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos'].forEach(k=> queueArr('construction.'+k, dataObj.construction[k]));
-  // Etc
-  ['illegalBuildingPhotos','leakPhotos','notesPhotos'].forEach(k=> queueArr('etc.'+k, dataObj.etc[k]));
-  // Measure
-  queueArr('measure.floorPlan', dataObj.measure.floorPlan);
-
-  const resolved = await Promise.all(jobs);
-
-  // Build a map of converted URLs
-  const map = {};
-  for(const [key, idx] of Object.entries(results)){
-    map[key] = resolved[idx];
-  }
-  return map;
-}
-
-async function exportPDF(){
+function exportPDF(){
   const info = data.info;
   const dateStr = (info.date||'').replace(/[^0-9]/g,'');
   const shortDate = dateStr.length>=8 ? dateStr.slice(2) : (dateStr.length>=6 ? dateStr : '날짜미정');
-  const fileName = `${shortDate} ${info.siteName||'미입력'} 실측보고서.pdf`;
+  const fileName = `${shortDate} ${info.siteName||'미입력'} 실측보고서`;
 
-  // Show loading overlay
-  const overlay = h('div',{style:{position:'fixed',top:'0',left:'0',right:'0',bottom:'0',zIndex:'9999',background:'rgba(0,0,0,0.7)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'16px'}});
-  overlay.innerHTML = `<div style="width:36px;height:36px;border:3px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div><div id="pdfMsg" style="color:#fff;font-size:15px;font-weight:600">PDF 생성 중...</div><div id="pdfSub" style="color:#aaa;font-size:12px">이미지 변환 준비 중</div>`;
-  document.body.appendChild(overlay);
-  const setMsg = (m,s) => { const a=document.getElementById('pdfMsg'),b=document.getElementById('pdfSub'); if(a)a.textContent=m; if(b)b.textContent=s||''; };
-
-  try {
-    // Step 1: Convert all remote images to base64
-    setMsg('이미지 변환 중...','Firebase 이미지를 다운로드합니다');
-    const imgMap = await convertAllImages(data);
-
-    // Helper to get converted URL
-    function b64(key, arr, i){ return imgMap[`${key}[${i}]`] || (arr&&arr[i]) || ''; }
-    function b64single(key){ return imgMap[key] || ''; }
-
-    setMsg('PDF 구성 중...','레이아웃 생성');
-
-    // Build clean HTML for PDF
-    const el = document.createElement('div');
-    el.style.cssText = 'width:520px;padding:32px 28px;font-family:Pretendard Variable,-apple-system,sans-serif;color:#111;background:#fff;line-height:1.6';
-
-    const C = {text:'#111',text2:'#555',text3:'#888',border:'#ddd',bg4:'#f5f5f5',accent:'#111'};
-
-    // --- Helper functions ---
-    function sec(num, title){
-      return `<div style="font-size:14px;font-weight:700;color:${C.text};margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid ${C.accent};display:flex;align-items:center;gap:8px">${num?`<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:${C.accent};color:#fff;font-size:10px;font-weight:700">${num}</span>`:''} ${title}</div>`;
-    }
-    function row(label, value){
-      if(!value || value==='—' || (typeof value==='string'&&!value.trim())) return '';
-      return `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:${C.text3};font-size:10px;margin-bottom:2px">${label}</div><div style="color:${C.text};font-weight:500">${value}</div></div>`;
-    }
-    function photoGrid(key, photos, size='110px'){
-      if(!photos?.length) return '';
-      return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${photos.map((p,i)=>{
-        const src = b64(key,photos,i);
-        return src ? `<img src="${src}" style="width:${size};height:${size};object-fit:cover;border-radius:6px;border:1px solid #eee">` : '';
-      }).join('')}</div>`;
-    }
-    function photoRow(label, value, key, photos){
-      if((!value||!value.trim())&&(!photos||!photos.length)) return '';
-      let html = `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:${C.text3};font-size:10px;margin-bottom:2px">${label}</div><div style="color:${C.text};font-weight:500">${value||'—'}</div>`;
-      if(photos?.length) html += photoGrid(key, photos, '80px');
-      html += '</div>';
-      return html;
-    }
-
-    // --- Header ---
-    el.innerHTML = `
-      <div style="padding-bottom:20px;border-bottom:1px solid #ddd;margin-bottom:24px">
-        <div style="font-size:9px;color:#999;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">이견공간기획 | 실측보고서(basic)</div>
-        <div style="font-size:22px;font-weight:700;color:#111;line-height:1.3">${info.siteName||'실측보고서'}</div>
-        <div style="font-size:12px;color:#888;margin-top:4px">${info.date} · ${info.manager||'담당자 미입력'}</div>
-      </div>
-    `;
-
-    // --- Info ---
-    el.innerHTML += `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">
-      ${sec('','기초 정보')}
-      ${row('실측날짜',info.date)}
-      ${row('현장명',info.siteName)}
-      ${row('주소',info.address)}
-      ${row('담당자',info.manager)}
-    </div>`;
-
-    // --- Photos (no video) ---
-    const hasExtPhotos = data.photos.exterior?.length>0;
-    const hasIntPhotos = data.photos.interior?.length>0;
-    if(hasExtPhotos || hasIntPhotos){
-      let photoHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('1','현장사진')}`;
-      if(hasExtPhotos) photoHtml += `<div style="font-size:10px;color:#888;margin-bottom:6px;font-weight:600">외부 (${data.photos.exterior.length}장)</div>${photoGrid('photos.exterior',data.photos.exterior,'110px')}`;
-      if(hasIntPhotos) photoHtml += `<div style="font-size:10px;color:#888;margin-bottom:6px;margin-top:12px;font-weight:600">내부 (${data.photos.interior.length}장)</div>${photoGrid('photos.interior',data.photos.interior,'110px')}`;
-      photoHtml += '</div>';
-      el.innerHTML += photoHtml;
-    }
-
-    // --- Fire ---
-    const fireNotes = [...(data.fire.notesTags||[]),data.fire.notesCustom].filter(Boolean);
-    if(data.fire.compliance || data.fire.sprinkler || fireNotes.length){
-      let fireHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('2','소방완비 대상여부')}`;
-      fireHtml += row('완비대상 여부', data.fire.compliance);
-      fireHtml += row('스프링클러 여부', data.fire.sprinkler);
-      if(fireNotes.length){
-        fireHtml += `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:${C.text3};font-size:10px;margin-bottom:2px">기타 특이사항</div>`;
-        fireNotes.forEach(n=>{ fireHtml += `<div style="color:${C.text};font-weight:500;line-height:1.7">· ${n}</div>`; });
-        fireHtml += '</div>';
-      }
-      fireHtml += '</div>';
-      el.innerHTML += fireHtml;
-    }
-
-    // --- Sketch ---
-    const sketchB64 = b64single('sketch.drawing');
-    if(sketchB64){
-      el.innerHTML += `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">
-        ${sec('','설비 요약 배치도')}
-        <img src="${sketchB64}" style="width:100%;border-radius:8px;border:1px solid #eee">
-      </div>`;
-    }
-
-    // --- Facility ---
-    const fac = data.facility;
-    const facHasContent = fac.waterMeter||fac.waterSupply||fac.drainage||(fac.ductTags||[]).length||fac.ductCustom||fac.gasEntry||fac.gasHeater||fac.notes;
-    if(facHasContent){
-      const ductVal = [...(fac.ductTags||[]),fac.ductCustom].filter(Boolean).join(', ');
-      let facHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('3','기초설비 체크사항')}`;
-      facHtml += photoRow('수도계량기 위치',fac.waterMeter,'facility.waterMeterPhotos',fac.waterMeterPhotos);
-      facHtml += photoRow('급수 위치 확인',fac.waterSupply,'facility.waterSupplyPhotos',fac.waterSupplyPhotos);
-      facHtml += photoRow('배수 위치, 관경',fac.drainage,'facility.drainagePhotos',fac.drainagePhotos);
-      facHtml += photoRow('덕트 체크',ductVal,'facility.ductPhotos',fac.ductPhotos);
-      facHtml += photoRow('가스배관 인입지점',fac.gasEntry,'facility.gasEntryPhotos',fac.gasEntryPhotos);
-      facHtml += photoRow('가스온수기',fac.gasHeater,'facility.gasHeaterPhotos',fac.gasHeaterPhotos);
-      facHtml += photoRow('기타 특이사항',fac.notes,'facility.notesPhotos',fac.notesPhotos);
-      facHtml += '</div>';
-      el.innerHTML += facHtml;
-    }
-
-    // --- Electric ---
-    const elec = data.electric;
-    const panelVal = (elec.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.trim()!=='A'&&e.trim()).join(', ');
-    const panelDisplay = [panelVal, elec.panelLocation].filter(Boolean).join(' / ');
-    if(panelDisplay || elec.hvac || elec.notes){
-      let elecHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('4','전기·냉난방')}`;
-      elecHtml += photoRow('분전함/계량기',panelDisplay,'electric.panelPhotos',elec.panelPhotos);
-      elecHtml += photoRow('냉난방기/실외기',elec.hvac,'electric.hvacPhotos',elec.hvacPhotos);
-      elecHtml += photoRow('기타 특이사항',elec.notes,'electric.notesPhotos',elec.notesPhotos);
-      elecHtml += '</div>';
-      el.innerHTML += elecHtml;
-    }
-
-    // --- Construction ---
-    const con = data.construction;
-    const parkingDisplay = [con.parking, con.parkingDetail].filter(Boolean).join(' / ');
-    const conHasContent = parkingDisplay||con.nearbyParkingAddr||con.materialRoute||con.stairElevator||con.buildingProtection||con.notes;
-    if(conHasContent){
-      let conHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('5','공사관련 체크사항')}`;
-      conHtml += photoRow('주차관리',parkingDisplay,'construction.parkingPhotos',con.parkingPhotos);
-      if(con.nearbyParkingAddr||con.nearbyParkingRate){
-        conHtml += row('근처 주차장',`${con.nearbyParkingAddr||'—'} / 일 ${con.nearbyParkingRate||'—'}원`);
-      }
-      conHtml += photoRow('자재입고 동선',con.materialRoute,'construction.materialRoutePhotos',con.materialRoutePhotos);
-      conHtml += photoRow('계단/E/V',con.stairElevator,'construction.stairElevatorPhotos',con.stairElevatorPhotos);
-      conHtml += photoRow('건물 보양',con.buildingProtection,'construction.buildingProtectionPhotos',con.buildingProtectionPhotos);
-      conHtml += photoRow('기타 특이사항',con.notes,'construction.notesPhotos',con.notesPhotos);
-      conHtml += '</div>';
-      el.innerHTML += conHtml;
-    }
-
-    // --- Etc ---
-    const etc = data.etc;
-    if(etc.illegalBuilding || etc.leak || etc.notes){
-      let etcHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('6','기타')}`;
-      etcHtml += photoRow('불법건축물',etc.illegalBuilding,'etc.illegalBuildingPhotos',etc.illegalBuildingPhotos);
-      etcHtml += photoRow('건물 누수',etc.leak,'etc.leakPhotos',etc.leakPhotos);
-      etcHtml += photoRow('기타',etc.notes,'etc.notesPhotos',etc.notesPhotos);
-      etcHtml += '</div>';
-      el.innerHTML += etcHtml;
-    }
-
-    // --- Measure ---
-    const me = data.measure;
-    if(me.ceilingSlab||me.ceilingBeam||me.ceilingFinish||me.area||me.floorPlan?.length){
-      let mHtml = `<div style="margin-bottom:24px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa">${sec('7','실측도')}`;
-      mHtml += row('천장고(슬라브)',me.ceilingSlab?me.ceilingSlab+'mm':'');
-      mHtml += row('천장고(하리)',me.ceilingBeam?me.ceilingBeam+'mm':'');
-      mHtml += row('천장고(천장마감)',me.ceilingFinish?me.ceilingFinish+'mm':'');
-      mHtml += row('마감 평수',me.area?me.area+'py':'');
-      if(me.floorPlan?.length){
-        mHtml += `<div style="font-size:10px;color:#888;margin:10px 0 6px;font-weight:600">실측도면 (${me.floorPlan.length}장)</div>`;
-        mHtml += me.floorPlan.map((p,i)=>{
-          const src = b64('measure.floorPlan',me.floorPlan,i);
-          return src ? `<img src="${src}" style="width:100%;border-radius:6px;margin-bottom:8px;border:1px solid #eee">` : '';
-        }).join('');
-      }
-      mHtml += '</div>';
-      el.innerHTML += mHtml;
-    }
-
-    // --- Footer ---
-    el.innerHTML += `<div style="text-align:center;padding:16px 0;font-size:10px;color:#bbb;letter-spacing:1px">iggg studio</div>`;
-
-    // Append hidden element for rendering
-    el.style.position = 'fixed';
-    el.style.left = '-9999px';
-    el.style.top = '0';
-    document.body.appendChild(el);
-
-    setMsg('PDF 변환 중...','잠시만 기다려주세요');
-
-    // Generate PDF
-    const opt = {
-      margin: [10, 0, 10, 0],
-      filename: fileName,
-      image: { type:'jpeg', quality:0.92 },
-      html2canvas: { scale:2, useCORS:false, allowTaint:true, logging:false, width:520, windowWidth:520 },
-      jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-      pagebreak: { mode:['avoid-all','css','legacy'] }
-    };
-
-    await html2pdf().set(opt).from(el).save();
-
-    // Cleanup
-    document.body.removeChild(el);
-    document.body.removeChild(overlay);
-
-  } catch(err){
-    console.error('PDF export error:', err);
-    if(document.body.contains(overlay)) document.body.removeChild(overlay);
-    alert('PDF 생성 중 오류가 발생했습니다:\n' + err.message);
+  // --- Helper functions ---
+  function sec(num, title){
+    return `<div style="font-size:14px;font-weight:700;color:#111;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #111;display:flex;align-items:center;gap:8px">${num?`<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;background:#111;color:#fff;font-size:10px;font-weight:700">${num}</span>`:''} ${title}</div>`;
   }
+  function row(label, value){
+    if(!value || value==='—' || (typeof value==='string'&&!value.trim())) return '';
+    return `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">${label}</div><div style="color:#111;font-weight:500">${value}</div></div>`;
+  }
+  function photoGrid(photos, size){
+    if(!photos?.length) return '';
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">${photos.map(p=>
+      `<img src="${p}" style="width:${size};height:${size};object-fit:cover;border-radius:6px;border:1px solid #ddd" crossorigin="anonymous">`
+    ).join('')}</div>`;
+  }
+  function photoRow(label, value, photos){
+    if((!value||!value.trim())&&(!photos||!photos.length)) return '';
+    let html = `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">${label}</div><div style="color:#111;font-weight:500">${value||'—'}</div>`;
+    if(photos?.length) html += photoGrid(photos, '80px');
+    html += '</div>';
+    return html;
+  }
+  function card(content){ return `<div style="margin-bottom:20px;padding:16px;border-radius:10px;border:1px solid #e0e0e0;background:#fafafa;page-break-inside:avoid">${content}</div>`; }
+
+  // --- Build sections ---
+  let body = '';
+
+  // Header
+  body += `<div style="padding-bottom:20px;border-bottom:1px solid #ddd;margin-bottom:24px">
+    <div style="font-size:9px;color:#999;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">이견공간기획 | 실측보고서(basic)</div>
+    <div style="font-size:22px;font-weight:700;color:#111;line-height:1.3">${info.siteName||'실측보고서'}</div>
+    <div style="font-size:12px;color:#888;margin-top:4px">${info.date} · ${info.manager||'담당자 미입력'}</div>
+  </div>`;
+
+  // Info
+  body += card(`${sec('','기초 정보')}${row('실측날짜',info.date)}${row('현장명',info.siteName)}${row('주소',info.address)}${row('담당자',info.manager)}`);
+
+  // Photos (no video)
+  if(data.photos.exterior?.length || data.photos.interior?.length){
+    let ph = sec('1','현장사진');
+    if(data.photos.exterior?.length) ph += `<div style="font-size:10px;color:#888;margin-bottom:6px;font-weight:600">외부 (${data.photos.exterior.length}장)</div>${photoGrid(data.photos.exterior,'110px')}`;
+    if(data.photos.interior?.length) ph += `<div style="font-size:10px;color:#888;margin-bottom:6px;margin-top:12px;font-weight:600">내부 (${data.photos.interior.length}장)</div>${photoGrid(data.photos.interior,'110px')}`;
+    body += card(ph);
+  }
+
+  // Fire
+  const fireNotes = [...(data.fire.notesTags||[]),data.fire.notesCustom].filter(Boolean);
+  if(data.fire.compliance || data.fire.sprinkler || fireNotes.length){
+    let fh = sec('2','소방완비 대상여부');
+    fh += row('완비대상 여부', data.fire.compliance);
+    fh += row('스프링클러 여부', data.fire.sprinkler);
+    if(fireNotes.length){
+      fh += `<div style="padding:7px 0;border-bottom:1px solid #eee;font-size:12px"><div style="color:#888;font-size:10px;margin-bottom:2px">기타 특이사항</div>`;
+      fireNotes.forEach(n=>{ fh += `<div style="color:#111;font-weight:500;line-height:1.7">· ${n}</div>`; });
+      fh += '</div>';
+    }
+    body += card(fh);
+  }
+
+  // Sketch
+  if(data.sketch.drawing){
+    body += card(`${sec('','설비 요약 배치도')}<img src="${data.sketch.drawing}" style="width:100%;border-radius:8px;border:1px solid #eee" crossorigin="anonymous">`);
+  }
+
+  // Facility
+  const fac = data.facility;
+  if(fac.waterMeter||fac.waterSupply||fac.drainage||(fac.ductTags||[]).length||fac.ductCustom||fac.gasEntry||fac.gasHeater||fac.notes){
+    const ductVal = [...(fac.ductTags||[]),fac.ductCustom].filter(Boolean).join(', ');
+    let fh = sec('3','기초설비 체크사항');
+    fh += photoRow('수도계량기 위치',fac.waterMeter,fac.waterMeterPhotos);
+    fh += photoRow('급수 위치 확인',fac.waterSupply,fac.waterSupplyPhotos);
+    fh += photoRow('배수 위치, 관경',fac.drainage,fac.drainagePhotos);
+    fh += photoRow('덕트 체크',ductVal,fac.ductPhotos);
+    fh += photoRow('가스배관 인입지점',fac.gasEntry,fac.gasEntryPhotos);
+    fh += photoRow('가스온수기',fac.gasHeater,fac.gasHeaterPhotos);
+    fh += photoRow('기타 특이사항',fac.notes,fac.notesPhotos);
+    body += card(fh);
+  }
+
+  // Electric
+  const elec = data.electric;
+  const panelVal = (elec.panelEntries||[]).map(e=>`${e.phase} ${e.amps}A`).filter(e=>e.trim()!=='A'&&e.trim()).join(', ');
+  const panelDisplay = [panelVal, elec.panelLocation].filter(Boolean).join(' / ');
+  if(panelDisplay || elec.hvac || elec.notes){
+    let eh = sec('4','전기·냉난방');
+    eh += photoRow('분전함/계량기',panelDisplay,elec.panelPhotos);
+    eh += photoRow('냉난방기/실외기',elec.hvac,elec.hvacPhotos);
+    eh += photoRow('기타 특이사항',elec.notes,elec.notesPhotos);
+    body += card(eh);
+  }
+
+  // Construction
+  const con = data.construction;
+  const parkingDisplay = [con.parking, con.parkingDetail].filter(Boolean).join(' / ');
+  if(parkingDisplay||con.nearbyParkingAddr||con.materialRoute||con.stairElevator||con.buildingProtection||con.notes){
+    let ch = sec('5','공사관련 체크사항');
+    ch += photoRow('주차관리',parkingDisplay,con.parkingPhotos);
+    if(con.nearbyParkingAddr||con.nearbyParkingRate) ch += row('근처 주차장',`${con.nearbyParkingAddr||'—'} / 일 ${con.nearbyParkingRate||'—'}원`);
+    ch += photoRow('자재입고 동선',con.materialRoute,con.materialRoutePhotos);
+    ch += photoRow('계단/E/V',con.stairElevator,con.stairElevatorPhotos);
+    ch += photoRow('건물 보양',con.buildingProtection,con.buildingProtectionPhotos);
+    ch += photoRow('기타 특이사항',con.notes,con.notesPhotos);
+    body += card(ch);
+  }
+
+  // Etc
+  const etc = data.etc;
+  if(etc.illegalBuilding || etc.leak || etc.notes){
+    let eh2 = sec('6','기타');
+    eh2 += photoRow('불법건축물',etc.illegalBuilding,etc.illegalBuildingPhotos);
+    eh2 += photoRow('건물 누수',etc.leak,etc.leakPhotos);
+    eh2 += photoRow('기타',etc.notes,etc.notesPhotos);
+    body += card(eh2);
+  }
+
+  // Measure
+  const me = data.measure;
+  if(me.ceilingSlab||me.ceilingBeam||me.ceilingFinish||me.area||me.floorPlan?.length){
+    let mh = sec('7','실측도');
+    mh += row('천장고(슬라브)',me.ceilingSlab?me.ceilingSlab+'mm':'');
+    mh += row('천장고(하리)',me.ceilingBeam?me.ceilingBeam+'mm':'');
+    mh += row('천장고(천장마감)',me.ceilingFinish?me.ceilingFinish+'mm':'');
+    mh += row('마감 평수',me.area?me.area+'py':'');
+    if(me.floorPlan?.length){
+      mh += `<div style="font-size:10px;color:#888;margin:10px 0 6px;font-weight:600">실측도면 (${me.floorPlan.length}장)</div>`;
+      mh += me.floorPlan.map(p=>`<img src="${p}" style="width:100%;border-radius:6px;margin-bottom:8px;border:1px solid #eee" crossorigin="anonymous">`).join('');
+    }
+    body += card(mh);
+  }
+
+  // Footer
+  body += `<div style="text-align:center;padding:16px 0;font-size:10px;color:#bbb;letter-spacing:1px">iggg studio</div>`;
+
+  // --- Open print window ---
+  const printWin = window.open('','_blank');
+  if(!printWin){ alert('팝업이 차단되었습니다. 팝업을 허용해주세요.'); return; }
+
+  printWin.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>${fileName}</title>
+<style>
+  @page { size: A4; margin: 15mm 12mm; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Pretendard Variable',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; color:#111; background:#fff; line-height:1.6; max-width:520px; margin:0 auto; padding:20px 0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  img { max-width:100%; }
+  @media print {
+    body { padding:0; }
+    .no-print { display:none !important; }
+  }
+</style>
+</head><body>
+  <div class="no-print" style="position:fixed;top:0;left:0;right:0;background:#111;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:12px 20px;z-index:100;font-size:14px">
+    <span style="font-weight:600">📄 ${fileName}</span>
+    <div style="display:flex;gap:8px">
+      <button onclick="window.print()" style="padding:8px 20px;border-radius:8px;border:none;background:#fff;color:#111;font-size:13px;font-weight:700;cursor:pointer">PDF 저장 / 인쇄</button>
+      <button onclick="window.close()" style="padding:8px 16px;border-radius:8px;border:1px solid #555;background:transparent;color:#fff;font-size:13px;cursor:pointer">닫기</button>
+    </div>
+  </div>
+  <div style="height:56px" class="no-print"></div>
+  ${body}
+</body></html>`);
+  printWin.document.close();
 }
 
 // ==================== Report View ====================
