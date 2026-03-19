@@ -840,7 +840,7 @@ function renderWizard(){
   container.appendChild(header);
 
   // Content
-  const content = h('div',{style:{flex:'1',padding:'12px 20px 140px'}});
+  const content = h('div',{style:{flex:'1',padding:'12px 20px 180px'}});
   content.classList.add('fade-in');
 
   // Step title
@@ -857,7 +857,7 @@ function renderWizard(){
   container.appendChild(content);
 
   // Bottom nav
-  const nav = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
+  const nav = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(24px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
 
   if(step>0){
     const prevBtn = h('button',{style:{flex:'0 0 auto',padding:'14px 20px',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}});
