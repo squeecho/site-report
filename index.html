@@ -635,8 +635,8 @@ function fetchReports(){
 }
 
 function renderHome(){
-  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh'}});
-  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'24px 20px 40px'}});
+  const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh',WebkitOverflowScrolling:'touch'}});
+  const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'24px 20px 120px'}});
 
   // Header
   inner.innerHTML = `
@@ -2207,13 +2207,27 @@ function renderReport(){
     const btnArea = h('div',{style:{position:'fixed',bottom:'0',left:'0',right:'0',padding:'16px 20px',paddingBottom:'max(16px, env(safe-area-inset-bottom))',background:T.gradientBottom,display:'flex',gap:'10px',zIndex:'20'}});
 
     if(editingId){
-      // === Existing report: 편집하기 / 공유링크 / PDF (all equal style) ===
+      // === Existing report: 저장 / 편집 (top row) + 공유링크 / PDF (bottom row) ===
+      btnArea.style.flexWrap = 'wrap';
 
-      const editBtn2 = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'✏️ 편집하기');
+      const saveBtn2 = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:'none',background:T.accent,color:T.accentText,fontSize:'15px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'},'data-save-btn':'1'});
+      if(saving){
+        saveBtn2.innerHTML = `<div style="width:18px;height:18px;border:2px solid ${T.accentText};border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
+        saveBtn2.style.opacity='0.7';
+        saveBtn2.style.pointerEvents='none';
+      } else {
+        saveBtn2.textContent = '💾 저장';
+        saveBtn2.onclick = saveReport;
+      }
+      btnArea.appendChild(saveBtn2);
+
+      const editBtn2 = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'✏️ 편집');
       editBtn2.onclick=()=>{showReport=false;navigateTo('wizard');};
       btnArea.appendChild(editBtn2);
 
-      const shareBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'🔗 공유링크');
+      // Second row separator
+      const row2 = h('div',{style:{width:'100%',display:'flex',gap:'10px'}});
+      const shareBtn = h('button',{style:{flex:'1',padding:'12px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'14px',cursor:'pointer',fontWeight:'500'}},'🔗 공유링크');
       shareBtn.onclick = ()=>{
         const url=`${location.origin}/report/${editingId}`;
         navigator.clipboard.writeText(url).then(()=>{
@@ -2225,11 +2239,12 @@ function renderReport(){
           showShareModal(url, editingId);
         });
       };
-      btnArea.appendChild(shareBtn);
+      row2.appendChild(shareBtn);
 
-      const pdfBtn = h('button',{style:{flex:'1',padding:'14px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'15px',cursor:'pointer',fontWeight:'500'}},'📄 PDF');
+      const pdfBtn = h('button',{style:{flex:'1',padding:'12px 0',borderRadius:'12px',border:`1px solid ${T.border3}`,background:'transparent',color:T.text2,fontSize:'14px',cursor:'pointer',fontWeight:'500'}},'📄 PDF');
       pdfBtn.onclick=exportPDF;
-      btnArea.appendChild(pdfBtn);
+      row2.appendChild(pdfBtn);
+      btnArea.appendChild(row2);
 
     } else {
       // === New report preview: 편집으로 돌아가기 / 저장 & 공유 ===
@@ -2249,7 +2264,7 @@ function renderReport(){
       btnArea.appendChild(saveBtn);
     }
 
-    inner.style.paddingBottom = '100px';
+    inner.style.paddingBottom = editingId ? '140px' : '100px';
     container.appendChild(inner);
     container.appendChild(btnArea);
   } else {
