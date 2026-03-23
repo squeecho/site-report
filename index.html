@@ -174,7 +174,7 @@ let saving = false;
 let savingMsg = '저장 중...';
 let viewMode = false; // true when viewing shared report
 let currentView = 'home'; // 'home' | 'wizard' | 'report'
-let isUnlocked = false; // password gate for editing
+let isUnlocked = localStorage.getItem('ig_unlocked') === '1'; // auto-login if previously authenticated
 const APP_PIN = '0707'; // ← 여기서 비밀번호 변경
 let editingId = null; // report ID when editing existing
 let fromWizard = false; // true when previewing from wizard (needs save)
@@ -608,6 +608,7 @@ function renderLock(){
       if(entered.length===4){
         if(entered===APP_PIN){
           isUnlocked=true;
+          localStorage.setItem('ig_unlocked','1');
           render();
         } else {
           // Wrong PIN - shake & reset
