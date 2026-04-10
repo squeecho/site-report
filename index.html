@@ -1239,27 +1239,34 @@ function renderStepPhotos(wrap){
 
   // Zone selector chips
   const existingZones = [...new Set((data.photos.interiorTags||[]).filter(Boolean))];
-  const defaultZones = ['B1','1F','2F','3F'];
-  const allZones = [...new Set([...defaultZones, ...existingZones])];
 
   const zoneRow = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px',alignItems:'center'}});
-  // "전체" chip (no zone filter, add without tag)
+  // "전체" chip
   const noZoneBtn = h('button',{style:{padding:'6px 14px',borderRadius:'16px',border:!currentInteriorZone?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:!currentInteriorZone?T.chipActive:T.chipInactive,color:!currentInteriorZone?T.chipActiveText:T.chipInactiveText,fontSize:'12px',cursor:'pointer',fontWeight:!currentInteriorZone?'600':'400'}},'전체');
   noZoneBtn.onclick=()=>{currentInteriorZone='';render();};
   zoneRow.appendChild(noZoneBtn);
-  allZones.forEach(z=>{
+  existingZones.forEach(z=>{
     const active = currentInteriorZone===z;
     const btn = h('button',{style:{padding:'6px 14px',borderRadius:'16px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'12px',cursor:'pointer',fontWeight:active?'600':'400'}},z);
     btn.onclick=()=>{currentInteriorZone=z;render();};
     zoneRow.appendChild(btn);
   });
-  // Custom zone add button
-  const addZoneBtn = h('button',{style:{padding:'6px 10px',borderRadius:'16px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'12px',cursor:'pointer'}},'+구역');
-  addZoneBtn.onclick=()=>{
-    const name = prompt('구역 이름 입력 (예: 4F, 201호, 로비)');
-    if(name && name.trim()){currentInteriorZone=name.trim();render();}
+  // Show active zone chip even if no photos tagged yet
+  if(currentInteriorZone && !existingZones.includes(currentInteriorZone)){
+    const activeBtn = h('button',{style:{padding:'6px 14px',borderRadius:'16px',border:`1.5px solid ${T.accent}`,background:T.chipActive,color:T.chipActiveText,fontSize:'12px',cursor:'pointer',fontWeight:'600'}},currentInteriorZone);
+    zoneRow.appendChild(activeBtn);
+  }
+  // Inline add zone input
+  const addWrap = h('div',{style:{display:'flex',alignItems:'center',gap:'4px'}});
+  const addInput = h('input',{type:'text',placeholder:'구역명',style:{width:'60px',padding:'5px 8px',borderRadius:'16px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text,fontSize:'12px',textAlign:'center',outline:'none'}});
+  addInput.onkeydown = e => {
+    if(e.key==='Enter'){e.preventDefault();const v=addInput.value.trim();if(v){currentInteriorZone=v;render();}}
   };
-  zoneRow.appendChild(addZoneBtn);
+  const addBtn = h('button',{style:{padding:'5px 10px',borderRadius:'16px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'12px',cursor:'pointer'}},'+');
+  addBtn.onclick=()=>{const v=addInput.value.trim();if(v){currentInteriorZone=v;render();}};
+  addWrap.appendChild(addInput);
+  addWrap.appendChild(addBtn);
+  zoneRow.appendChild(addWrap);
   intBox.appendChild(zoneRow);
 
   // Photo grid - show filtered or all
