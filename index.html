@@ -184,7 +184,7 @@ let data = makeInitialData();
 function makeInitialData(){
   return {
     info:{date:"",siteName:"",address:"",manager:""},
-    photos:{exterior:[],interior:[],video:""},
+    photos:{exterior:[],interior:[],interiorTags:[],video:""},
     fire:{compliance:"",sprinkler:"",notesTags:[],notesCustom:""},
     sketch:{mode:"draw",bgPhoto:null,drawing:null,polygon:null,walls:[],doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
@@ -197,6 +197,7 @@ function makeInitialData(){
 
 // Sketch state (non-persistent between renders)
 let sketchTool = "wall";
+let currentInteriorZone = "";
 let sketchSelectedPin = "water";
 let sketchDragIdx = -1;
 let sketchDragPrev = null;
@@ -1231,9 +1232,90 @@ function renderStepPhotos(wrap){
   makePhotoGrid(wrap,'외부 사진',data.photos.exterior,
     src=>{data.photos.exterior.push(src);},
     i=>{data.photos.exterior.splice(i,1);},10);
-  makePhotoGrid(wrap,'내부 사진',data.photos.interior,
-    src=>{data.photos.interior.push(src);},
-    i=>{data.photos.interior.splice(i,1);},20);
+
+  // Interior photos with zone tagging
+  const intBox = h('div',{style:{marginBottom:'20px'}});
+  intBox.appendChild(h('div',{style:{fontSize:'13px',color:T.text2,marginBottom:'8px',fontWeight:'500'}},'내부 사진'));
+
+  // Zone selector chips
+  const existingZones = [...new Set((data.photos.interiorTags||[]).filter(Boolean))];
+  const defaultZones = ['B1','1F','2F','3F'];
+  const allZones = [...new Set([...defaultZones, ...existingZones])];
+
+  const zoneRow = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'10px',alignItems:'center'}});
+  // "전체" chip (no zone filter, add without tag)
+  const noZoneBtn = h('button',{style:{padding:'6px 14px',borderRadius:'16px',border:!currentInteriorZone?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:!currentInteriorZone?T.chipActive:T.chipInactive,color:!currentInteriorZone?T.chipActiveText:T.chipInactiveText,fontSize:'12px',cursor:'pointer',fontWeight:!currentInteriorZone?'600':'400'}},'전체');
+  noZoneBtn.onclick=()=>{currentInteriorZone='';render();};
+  zoneRow.appendChild(noZoneBtn);
+  allZones.forEach(z=>{
+    const active = currentInteriorZone===z;
+    const btn = h('button',{style:{padding:'6px 14px',borderRadius:'16px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'12px',cursor:'pointer',fontWeight:active?'600':'400'}},z);
+    btn.onclick=()=>{currentInteriorZone=z;render();};
+    zoneRow.appendChild(btn);
+  });
+  // Custom zone add button
+  const addZoneBtn = h('button',{style:{padding:'6px 10px',borderRadius:'16px',border:`1px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'12px',cursor:'pointer'}},'+구역');
+  addZoneBtn.onclick=()=>{
+    const name = prompt('구역 이름 입력 (예: 4F, 201호, 로비)');
+    if(name && name.trim()){currentInteriorZone=name.trim();render();}
+  };
+  zoneRow.appendChild(addZoneBtn);
+  intBox.appendChild(zoneRow);
+
+  // Photo grid - show filtered or all
+  const tags = data.photos.interiorTags || [];
+  while(tags.length < data.photos.interior.length) tags.push('');
+  data.photos.interiorTags = tags;
+
+  const filteredIndices = [];
+  data.photos.interior.forEach((p,i)=>{
+    if(!currentInteriorZone || tags[i]===currentInteriorZone) filteredIndices.push(i);
+  });
+
+  const grid = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}});
+  filteredIndices.forEach(i=>{
+    const cell = h('div',{style:{position:'relative',aspectRatio:'1',borderRadius:'10px',overflow:'hidden',background:T.bg4}});
+    cell.innerHTML = `<img src="${data.photos.interior[i]}" style="width:100%;height:100%;object-fit:cover">`;
+    // Zone badge
+    if(tags[i]){
+      const badge = h('div',{style:{position:'absolute',bottom:'4px',left:'4px',background:'rgba(0,0,0,0.65)',color:'#fff',fontSize:'10px',padding:'2px 7px',borderRadius:'8px',fontWeight:'500'}},tags[i]);
+      cell.appendChild(badge);
+    }
+    const rm = h('button',{style:{position:'absolute',top:'4px',right:'4px',width:'22px',height:'22px',borderRadius:'50%',border:'none',background:T.removeBg,color:'#fff',fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}},'✕');
+    rm.onclick=()=>{data.photos.interior.splice(i,1);data.photos.interiorTags.splice(i,1);render();};
+    cell.appendChild(rm);
+    grid.appendChild(cell);
+  });
+
+  const max = 20;
+  if(data.photos.interior.length < max){
+    const camBtn = h('button',{style:{aspectRatio:'1',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px'}});
+    camBtn.innerHTML = `<span style="font-size:24px">📷</span><span style="font-size:10px;color:${T.text5}">촬영</span>`;
+    const camInput = h('input',{type:'file',accept:'image/*',capture:'environment',multiple:'true',style:{display:'none'}});
+    camInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{data.photos.interior.push(src);data.photos.interiorTags.push(currentInteriorZone);render();});}); e.target.value=''; };
+    camBtn.onclick=()=>camInput.click();
+    grid.appendChild(camBtn);
+    intBox.appendChild(camInput);
+
+    const albBtn = h('button',{style:{aspectRatio:'1',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px'}});
+    albBtn.innerHTML = `<span style="font-size:24px">🖼️</span><span style="font-size:10px;color:${T.text5}">앨범 ${data.photos.interior.length}/${max}</span>`;
+    const albInput = h('input',{type:'file',accept:'image/*',multiple:'true',style:{display:'none'}});
+    albInput.onchange = e => { Array.from(e.target.files).forEach(f=>{compressImage(f).then(src=>{data.photos.interior.push(src);data.photos.interiorTags.push(currentInteriorZone);render();});}); e.target.value=''; };
+    albBtn.onclick=()=>albInput.click();
+    grid.appendChild(albBtn);
+    intBox.appendChild(albInput);
+  }
+  intBox.appendChild(grid);
+
+  // Zone count summary
+  if(data.photos.interior.length > 0){
+    const summary = h('div',{style:{marginTop:'8px',fontSize:'11px',color:T.text5}});
+    const zoneCounts = {};
+    tags.forEach(t=>{ const k = t||'미지정'; zoneCounts[k]=(zoneCounts[k]||0)+1; });
+    summary.textContent = Object.entries(zoneCounts).map(([k,v])=>`${k} ${v}장`).join(' · ');
+    intBox.appendChild(summary);
+  }
+  wrap.appendChild(intBox);
 
   // Video
   const vBox = h('div',{style:{marginBottom:'16px'}});
@@ -2055,7 +2137,27 @@ function renderReport(){
   const photoSec = h('div',{style:secStyle,'data-photo-section':'1'});
   photoSec.appendChild(secTitle('1','현장사진'));
   photoSec.appendChild(makePhotos(data.photos.exterior,'외부'));
-  photoSec.appendChild(makePhotos(data.photos.interior,'내부'));
+  // Interior photos grouped by zone
+  const intTags = data.photos.interiorTags || [];
+  const intPhotos = data.photos.interior || [];
+  if(intPhotos.length){
+    const grouped = {};
+    intPhotos.forEach((p,i)=>{
+      const zone = intTags[i] || '';
+      if(!grouped[zone]) grouped[zone] = [];
+      grouped[zone].push(p);
+    });
+    const zones = Object.keys(grouped);
+    if(zones.length === 1 && zones[0] === ''){
+      // No zones, render flat
+      photoSec.appendChild(makePhotos(intPhotos,'내부'));
+    } else {
+      zones.forEach(zone=>{
+        const label = zone ? `내부 — ${zone}` : '내부 — 미지정';
+        photoSec.appendChild(makePhotos(grouped[zone], label));
+      });
+    }
+  }
   if(data.photos.video){
     const m = data.photos.video.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
     if(m){
