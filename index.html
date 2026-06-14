@@ -784,11 +784,17 @@ function renderHome(){
 // Load report for viewing from home
 async function deleteReport(id){
   try {
-    // 사진은 Cloudinary에 저장됨. unsigned 업로드는 브라우저에서 삭제 불가하므로
-    // (서명 필요) 보고서 삭제 시 Cloudinary 이미지는 남겨둠. 필요 시 백엔드에서 정리.
-
     // Delete Firestore document
     await db.collection('reports').doc(id).delete();
+
+    // Cloudinary 이미지 자동정리 (백엔드 함수가 reports/{id}/* 삭제).
+    // 서명 필요 작업이라 서버에서 처리. 실패해도 보고서 삭제는 유지(best-effort).
+    fetch('/api/cloudinary-delete', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id})
+    }).then(r=>{ if(!r.ok) console.warn('Cloudinary 정리 실패:', r.status); })
+      .catch(e=>console.warn('Cloudinary 정리 호출 실패:', e));
 
     // Refresh list
     reportsList = reportsList ? reportsList.filter(r=>r.id!==id) : null;
