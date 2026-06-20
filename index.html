@@ -194,7 +194,7 @@ function makeInitialData(){
     info:{date:"",siteName:"",address:"",manager:""},
     photos:{exterior:[],interior:[],interiorTags:[],video:""},
     fire:{compliance:"",sprinkler:"",notesTags:[],notesCustom:""},
-    sketch:{mode:"draw",bgPhoto:null,drawing:null,polygon:null,walls:[],doors:[],pins:[]},
+    sketch:{mode:"draw",bgPhoto:null,drawing:null,polygon:null,doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
     electric:{panelEntries:[{phase:"삼상",amps:""}],panelLocation:"",panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
     construction:{parking:"",parkingDetail:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
@@ -207,10 +207,7 @@ function makeInitialData(){
 let sketchTool = "wall";
 let currentInteriorZone = "";
 let sketchSelectedPin = "water";
-let sketchDragIdx = -1;
-let sketchDragPrev = null;
 let sketchActionHistory = [];
-let sketchCanvasSize = {w:0,h:0};
 
 // ==================== Image Compression ====================
 // WebP 인코딩 지원 감지 (구형 Safari 등 미지원 시 JPEG로 폴백 → PNG 폴백 방지)
@@ -275,19 +272,6 @@ async function saveReport(){
   render();
 
   try {
-    // Collect all photos to upload
-    const photoFields = [];
-    const collectPhotos = (obj, prefix) => {
-      for(const [k,v] of Object.entries(obj)){
-        if(Array.isArray(v) && v.length > 0 && typeof v[0]==='string' && v[0].startsWith('data:')){
-          photoFields.push({path:`${prefix}.${k}`, photos:v});
-        } else if(typeof v==='string' && v.startsWith('data:') && k!=='video'){
-          photoFields.push({path:`${prefix}.${k}`, photos:[v], single:true});
-        } else if(v && typeof v==='object' && !Array.isArray(v) && k!=='walls' && k!=='doors' && k!=='pins'){
-          // skip nested objects that aren't photo containers
-        }
-      }
-    };
 
     // Create new or use existing doc
     let reportId;
@@ -312,22 +296,27 @@ async function saveReport(){
     // Deep clone data for upload
     const uploadData = JSON.parse(JSON.stringify(data));
 
+    // 섹션별 사진 필드 목록 — 개수 집계·업로드 큐·결과 반영에서 공통 사용
+    const PHOTO_FIELDS = {
+      facility: ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos'],
+      electric: ['panelPhotos','hvacPhotos','notesPhotos'],
+      construction: ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos'],
+      etc: ['illegalBuildingPhotos','leakPhotos','notesPhotos'],
+    };
+
     // Count total photos to upload for progress
     const countDataUrls = arr => (arr||[]).filter(u=>typeof u==='string'&&u.startsWith('data:')).length;
     uploadTotal = countDataUrls(data.photos.exterior) + countDataUrls(data.photos.interior)
       + (data.sketch.drawing?.startsWith('data:')?1:0) + (data.sketch.bgPhoto?.startsWith('data:')?1:0)
       + countDataUrls(data.measure.floorPlan);
-    for(const k of ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.facility[k]);
-    for(const k of ['panelPhotos','hvacPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.electric[k]);
-    for(const k of ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.construction[k]);
-    for(const k of ['illegalBuildingPhotos','leakPhotos','notesPhotos']) uploadTotal+=countDataUrls(data.etc[k]);
+    for(const [section, keys] of Object.entries(PHOTO_FIELDS))
+      for(const k of keys) uploadTotal += countDataUrls(data[section][k]);
     uploadDone = 0;
     savingMsg = uploadTotal > 0 ? `사진 업로드 0/${uploadTotal}` : '저장 중...';
     render();
 
     // Collect ALL photos that need uploading
     let photoIdx = 0;
-    const uploadJobs = []; // {resolve, dataUrl}
 
     const queueArr = (arr) => {
       return arr.map(dataUrl => {
@@ -348,21 +337,13 @@ async function saveReport(){
     const skDrawP = (data.sketch.drawing && data.sketch.drawing.startsWith('data:')) ? uploadPhoto(data.sketch.drawing, reportId, photoIdx++).then(u=>{uploadData.sketch.drawing=u;}) : null;
     const skBgP = (data.sketch.bgPhoto && data.sketch.bgPhoto.startsWith('data:')) ? uploadPhoto(data.sketch.bgPhoto, reportId, photoIdx++).then(u=>{uploadData.sketch.bgPhoto=u;}) : null;
 
-    const facJobs = {};
-    for(const k of ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos']){
-      if(data.facility[k]?.length) facJobs[k] = queueArr(data.facility[k]);
-    }
-    const elecJobs = {};
-    for(const k of ['panelPhotos','hvacPhotos','notesPhotos']){
-      if(data.electric[k]?.length) elecJobs[k] = queueArr(data.electric[k]);
-    }
-    const conJobs = {};
-    for(const k of ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos']){
-      if(data.construction[k]?.length) conJobs[k] = queueArr(data.construction[k]);
-    }
-    const etcJobs = {};
-    for(const k of ['illegalBuildingPhotos','leakPhotos','notesPhotos']){
-      if(data.etc[k]?.length) etcJobs[k] = queueArr(data.etc[k]);
+    // 섹션별 사진 업로드 큐 (PHOTO_FIELDS 기반)
+    const sectionJobs = {};
+    for(const [section, keys] of Object.entries(PHOTO_FIELDS)){
+      sectionJobs[section] = {};
+      for(const k of keys){
+        if(data[section][k]?.length) sectionJobs[section][k] = queueArr(data[section][k]);
+      }
     }
     const fpP = data.measure.floorPlan?.length ? queueArr(data.measure.floorPlan) : null;
 
@@ -372,10 +353,8 @@ async function saveReport(){
     uploadData.photos.interior = intUrls;
     if(skDrawP) await skDrawP;
     if(skBgP) await skBgP;
-    for(const [k,jobs] of Object.entries(facJobs)) uploadData.facility[k] = await Promise.all(jobs);
-    for(const [k,jobs] of Object.entries(elecJobs)) uploadData.electric[k] = await Promise.all(jobs);
-    for(const [k,jobs] of Object.entries(conJobs)) uploadData.construction[k] = await Promise.all(jobs);
-    for(const [k,jobs] of Object.entries(etcJobs)) uploadData.etc[k] = await Promise.all(jobs);
+    for(const [section, jobsMap] of Object.entries(sectionJobs))
+      for(const [k,jobs] of Object.entries(jobsMap)) uploadData[section][k] = await Promise.all(jobs);
     if(fpP) uploadData.measure.floorPlan = await Promise.all(fpP);
 
     // Save complete data - remove non-serializable fields
@@ -1476,7 +1455,6 @@ function renderStepSketch(wrap){
       // 도구 버튼이 화면 밖으로 밀리는 것을 방지. 화면 높이의 약 46%로 제한해
       // 도구 버튼이 스크롤 없이 캔버스 바로 아래에 보이도록 함. (폰은 w*0.75가 더 작아 그대로 유지)
       const cH = Math.round(Math.min(w*0.75, window.innerHeight*0.46));
-      sketchCanvasSize = {w:w,h:cH};
       const dpr = 2;
       canvas.width = w*dpr; canvas.height = cH*dpr;
       canvas.style.width = w+'px'; canvas.style.height = cH+'px';
@@ -1502,13 +1480,8 @@ function renderStepSketch(wrap){
           for(var gx=0;gx<=w;gx+=15){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,cH);ctx.stroke();}
           for(var gy=0;gy<=cH;gy+=15){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(w,gy);ctx.stroke();}
         }
-        // Draw walls & polygon only in draw mode (not photo mode)
+        // Draw polygon only in draw mode (not photo mode)
         if(d2.mode!=='photo'){
-          // Legacy walls
-          (d2.walls||[]).forEach(function(wall){
-            ctx.strokeStyle=CK_WALL; ctx.lineWidth=6; ctx.lineCap='round';
-            ctx.beginPath(); ctx.moveTo(wall.x1,wall.y1); ctx.lineTo(wall.x2,wall.y2); ctx.stroke();
-          });
           // Polygon
           var poly = d2.polygon;
           if(poly && poly.length>=3){
@@ -1805,7 +1778,7 @@ function renderStepSketch(wrap){
 
     if(d2.mode==='photo'&&d2.bgPhoto){
       const changeBtn = h('button',{style:{padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text5,fontSize:'12px',cursor:'pointer'}},'사진 변경');
-      changeBtn.onclick=()=>{d2.bgPhoto=null;d2.drawing=null;d2.polygon=null;d2.walls=[];d2.doors=[];render();};
+      changeBtn.onclick=()=>{d2.bgPhoto=null;d2.drawing=null;d2.polygon=null;d2.doors=[];render();};
       toolbar.appendChild(changeBtn);
     }
     wrap.appendChild(toolbar);
@@ -2574,8 +2547,6 @@ function autoSave(){
     } catch(e2){}
   }
 }
-
-function loadDraft(){ return null; } // legacy compat — not used anymore
 
 function loadAllDrafts(){
   var drafts = getAllDrafts();

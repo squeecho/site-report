@@ -1,7 +1,18 @@
+// HTML 속성/텍스트 컨텍스트용 이스케이프
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 module.exports = async function handler(req, res) {
   const id = req.query.id;
 
-  if (!id) {
+  // Firestore 자동 ID 형식만 허용 (HTML/스크립트 주입 차단)
+  if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) {
     res.redirect('/');
     return;
   }
@@ -37,26 +48,33 @@ module.exports = async function handler(req, res) {
   const ogImage = 'https://' + host + '/og-image.png';
   const redirectUrl = 'https://' + host + '/?id=' + id;
 
+  // 모든 동적 값은 출력 컨텍스트에 맞게 이스케이프 (id는 위에서 형식 검증 완료)
+  const titleEsc = escapeHtml(title);
+  const hostEsc = escapeHtml(host);
+  const ogImageEsc = escapeHtml(ogImage);
+  const redirectUrlEsc = escapeHtml(redirectUrl);
+  const redirectUrlJs = JSON.stringify(redirectUrl).replace(/</g, '\\u003c');
+
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-store');
   res.status(200).send(
     '<!DOCTYPE html>' +
     '<html lang="ko"><head><meta charset="UTF-8">' +
-    '<meta property="og:title" content="' + title + '">' +
+    '<meta property="og:title" content="' + titleEsc + '">' +
     '<meta property="og:description" content="이견공간 실측보고서(basic)">' +
-    '<meta property="og:image" content="' + ogImage + '">' +
+    '<meta property="og:image" content="' + ogImageEsc + '">' +
     '<meta property="og:image:width" content="1200">' +
     '<meta property="og:image:height" content="630">' +
     '<meta property="og:type" content="website">' +
-    '<meta property="og:url" content="https://' + host + '/report/' + id + '">' +
+    '<meta property="og:url" content="https://' + hostEsc + '/report/' + id + '">' +
     '<meta name="twitter:card" content="summary_large_image">' +
-    '<meta name="twitter:title" content="' + title + '">' +
+    '<meta name="twitter:title" content="' + titleEsc + '">' +
     '<meta name="twitter:description" content="이견공간 실측보고서(basic)">' +
-    '<meta name="twitter:image" content="' + ogImage + '">' +
-    '<title>' + title + ' | 이견공간 실측보고서</title>' +
-    '<meta http-equiv="refresh" content="0;url=' + redirectUrl + '">' +
+    '<meta name="twitter:image" content="' + ogImageEsc + '">' +
+    '<title>' + titleEsc + ' | 이견공간 실측보고서</title>' +
+    '<meta http-equiv="refresh" content="0;url=' + redirectUrlEsc + '">' +
     '</head><body>' +
-    '<script>window.location.href="' + redirectUrl + '";</script>' +
+    '<script>window.location.href=' + redirectUrlJs + ';</script>' +
     '</body></html>'
   );
 };
