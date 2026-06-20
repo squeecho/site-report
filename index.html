@@ -1472,7 +1472,10 @@ function renderStepSketch(wrap){
 
     requestAnimationFrame(()=>{
       const w = canvasWrap.getBoundingClientRect().width;
-      const cH = Math.round(w*0.75);
+      // 캔버스 높이 상한: 폭이 넓은 화면(갤럭시폴드 펼친 화면 등)에서 캔버스가 너무 커져
+      // 도구 버튼이 화면 밖으로 밀리는 것을 방지. 화면 높이의 약 46%로 제한해
+      // 도구 버튼이 스크롤 없이 캔버스 바로 아래에 보이도록 함. (폰은 w*0.75가 더 작아 그대로 유지)
+      const cH = Math.round(Math.min(w*0.75, window.innerHeight*0.46));
       sketchCanvasSize = {w:w,h:cH};
       const dpr = 2;
       canvas.width = w*dpr; canvas.height = cH*dpr;
@@ -1579,6 +1582,37 @@ function renderStepSketch(wrap){
 
       var dragIdx=-1, dragPrev=null;
 
+      // ===== 마커(설비/출입구) 끌어서 배치 + 끌어서 이동 =====
+      var HIT_R=26;          // 기존 마커를 집는 반경(px)
+      var MOVE_THRESH=6;     // 드래그로 인정하는 최소 이동(px)
+      var HOLD_MS=180;       // 안 움직여도 이 시간 이상 누르면 배치(가벼운 오탭은 무시)
+      var mkDrag=null;       // 진행 중인 배치/이동 세션
+      var ghostEl=null;      // 손가락을 따라다니는 미리보기
+
+      var hitMarker=function(pos,rect){
+        var best=null, bestD=HIT_R;
+        (d2.pins||[]).forEach(function(p){
+          var dx=pos.x-p.x/100*rect.width, dy=pos.y-p.y/100*rect.height, dd=Math.sqrt(dx*dx+dy*dy);
+          if(dd<bestD){bestD=dd;best={kind:'pin',id:p.id,ref:p};}
+        });
+        (d2.doors||[]).forEach(function(o){
+          var dx=pos.x-o.x/100*rect.width, dy=pos.y-o.y/100*rect.height, dd=Math.sqrt(dx*dx+dy*dy);
+          if(dd<bestD){bestD=dd;best={kind:'door',id:o.id,ref:o};}
+        });
+        return best;
+      };
+      var makeGhost=function(sess){
+        var g=document.createElement('div');
+        g.style.cssText='position:absolute;transform:translate(-50%,-50%);pointer-events:none;z-index:50;opacity:0.9;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35))';
+        if(sess.kind==='door'){ g.style.fontSize='22px'; g.textContent='🚪'; }
+        else {
+          var pt=PIN_TYPES.find(function(p){return p.id===(sess.ref?sess.ref.type:sess.pinType);});
+          g.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,0.2);border:1px solid #ddd">'+(pt?pt.emoji:'')+'</div>';
+        }
+        return g;
+      };
+      var moveGhost=function(g,pos){ g.style.left=pos.x+'px'; g.style.top=pos.y+'px'; };
+
       var onDown = function(e){
         var pos=getXY(e);
         if(sketchTool==='wall' && d2.polygon){
@@ -1593,6 +1627,23 @@ function renderStepSketch(wrap){
             }
           }
         }
+        if(sketchTool==='pin' || sketchTool==='door'){
+          var rect=canvas.getBoundingClientRect();
+          var hit=hitMarker(pos,rect);
+          if(hit){
+            // 기존 마커를 집어 이동
+            mkDrag={mode:'move',kind:hit.kind,id:hit.id,ref:hit.ref,prevX:hit.ref.x,prevY:hit.ref.y,x0:pos.x,y0:pos.y,t0:Date.now(),moved:false};
+            var orig=canvasWrap.querySelector('[data-mid="'+hit.kind+'-'+hit.id+'"]');
+            if(orig){ orig.style.visibility='hidden'; mkDrag.origEl=orig; }
+          } else {
+            // 새 마커 배치 시작
+            mkDrag={mode:'place',kind:(sketchTool==='door'?'door':'pin'),pinType:sketchSelectedPin,x0:pos.x,y0:pos.y,t0:Date.now(),moved:false};
+          }
+          ghostEl=makeGhost(mkDrag);
+          moveGhost(ghostEl,pos);
+          canvasWrap.appendChild(ghostEl);
+          e.preventDefault();
+        }
       };
 
       var onMove = function(e){
@@ -1602,6 +1653,16 @@ function renderStepSketch(wrap){
           d2.polygon[dragIdx]=toPct(pos.x,pos.y);
           snapAngle(dragIdx);
           drawCanvas(false);
+          return;
+        }
+        if(mkDrag && ghostEl){
+          e.preventDefault();
+          var mpos=getXY(e);
+          if(!mkDrag.moved){
+            var dx=mpos.x-mkDrag.x0, dy=mpos.y-mkDrag.y0;
+            if(dx*dx+dy*dy > MOVE_THRESH*MOVE_THRESH) mkDrag.moved=true;
+          }
+          moveGhost(ghostEl,mpos);
         }
       };
 
@@ -1628,26 +1689,42 @@ function renderStepSketch(wrap){
             }
           }
         }
-        if(sketchTool==='door'){
+        if(mkDrag){
+          e.preventDefault();
           var rect=canvas.getBoundingClientRect();
-          var xP=(pos.x/rect.width)*100, yP=(pos.y/rect.height)*100;
-          var did=Date.now();
-          d2.doors=[].concat(d2.doors||[],[{id:did,x:xP,y:yP}]);
-          sketchActionHistory.push({type:'addDoor',id:did});
-          if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
-          render();
-        }
-        if(sketchTool==='pin'){
-          var rect=canvas.getBoundingClientRect();
-          var xP=(pos.x/rect.width)*100, yP=(pos.y/rect.height)*100;
-          var pid=Date.now();
-          var np={id:pid,type:sketchSelectedPin,x:xP,y:yP,note:''};
-          d2.pins=[].concat(d2.pins||[],[np]);
-          var fk=PIN_FACILITY_MAP[sketchSelectedPin];
-          if(fk) data.facility[fk]={x:xP,y:yP};
-          sketchActionHistory.push({type:'addPin',id:pid,pinType:sketchSelectedPin});
-          if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
-          render();
+          var sess=mkDrag; mkDrag=null;
+          if(ghostEl){ ghostEl.remove(); ghostEl=null; }
+          var xP=Math.max(0,Math.min(100,(pos.x/rect.width)*100));
+          var yP=Math.max(0,Math.min(100,(pos.y/rect.height)*100));
+          var commit = sess.moved || (Date.now()-sess.t0)>=HOLD_MS;
+          if(sess.mode==='place'){
+            if(!commit) return;            // 가볍게 탭만 한 경우 — 추가하지 않음(오탭 방지)
+            if(sess.kind==='door'){
+              var did=Date.now();
+              d2.doors=[].concat(d2.doors||[],[{id:did,x:xP,y:yP}]);
+              sketchActionHistory.push({type:'addDoor',id:did});
+            } else {
+              var pid=Date.now();
+              d2.pins=[].concat(d2.pins||[],[{id:pid,type:sess.pinType,x:xP,y:yP,note:''}]);
+              var fkA=PIN_FACILITY_MAP[sess.pinType];
+              if(fkA) data.facility[fkA]={x:xP,y:yP};
+              sketchActionHistory.push({type:'addPin',id:pid,pinType:sess.pinType});
+            }
+            if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
+            render(); return;
+          }
+          if(sess.mode==='move'){
+            if(!sess.moved){ if(sess.origEl) sess.origEl.style.visibility=''; return; }
+            if(sess.kind==='door'){
+              var dr2=(d2.doors||[]).find(function(o){return o.id===sess.id;});
+              if(dr2){ sketchActionHistory.push({type:'moveDoor',id:sess.id,data:{x:sess.prevX,y:sess.prevY}}); dr2.x=xP; dr2.y=yP; }
+            } else {
+              var pn=(d2.pins||[]).find(function(o){return o.id===sess.id;});
+              if(pn){ sketchActionHistory.push({type:'movePin',id:sess.id,data:{x:sess.prevX,y:sess.prevY}}); pn.x=xP; pn.y=yP; var fkB=PIN_FACILITY_MAP[pn.type]; if(fkB) data.facility[fkB]={x:xP,y:yP}; }
+            }
+            if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
+            render(); return;
+          }
         }
         if(sketchTool==='eraser' && d2.mode!=='photo' && d2.polygon && d2.polygon.length>3){
           for(var i=0;i<d2.polygon.length;i++){
@@ -1664,18 +1741,22 @@ function renderStepSketch(wrap){
         }
       };
 
+      var onCancel=function(){ if(ghostEl){ghostEl.remove();ghostEl=null;} if(mkDrag&&mkDrag.origEl)mkDrag.origEl.style.visibility=''; mkDrag=null; };
       canvas.addEventListener('touchstart',function(e){e.preventDefault();onDown(e);},{passive:false});
       canvas.addEventListener('touchmove',function(e){e.preventDefault();onMove(e);},{passive:false});
       canvas.addEventListener('touchend',function(e){e.preventDefault();onUp(e);});
+      canvas.addEventListener('touchcancel',onCancel);
       canvas.addEventListener('mousedown',onDown);
       canvas.addEventListener('mousemove',onMove);
       canvas.addEventListener('mouseup',onUp);
+      if(sketchTool==='pin'||sketchTool==='door') canvas.style.cursor='crosshair';
 
       // Door overlays
       (d2.doors||[]).forEach(function(dr){
         var el=document.createElement('div');
         el.style.cssText='position:absolute;left:'+dr.x+'%;top:'+dr.y+'%;transform:translate(-50%,-50%);font-size:22px;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
         el.textContent='🚪';
+        el.dataset.mid='door-'+dr.id;
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;d2.doors=d2.doors.filter(function(d3){return d3.id!==dr.id;});sketchActionHistory.push({type:'eraseDoor',data:dr});render();};
         canvasWrap.appendChild(el);
       });
@@ -1683,6 +1764,7 @@ function renderStepSketch(wrap){
       (d2.pins||[]).forEach(function(pin){
         var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
         var el=document.createElement('div');
+        el.dataset.mid='pin-'+pin.id;
         el.style.cssText='position:absolute;left:'+pin.x+'%;top:'+pin.y+'%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
         el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap;border:1px solid #ccc;font-weight:600">'+(pt?pt.label:'')+'</div>';
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;var fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(function(p){return p.id!==pin.id;});sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type});render();};
@@ -1715,6 +1797,8 @@ function renderStepSketch(wrap){
       else if(last.type==='addPin'){d2.pins=(d2.pins||[]).filter(p=>p.id!==last.id);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]=null;}
       else if(last.type==='eraseDoor') d2.doors=[].concat(d2.doors||[],[last.data]);
       else if(last.type==='erasePin'){d2.pins=[].concat(d2.pins||[],[last.data]);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]={x:last.data.x,y:last.data.y};}
+      else if(last.type==='moveDoor'){const dr=(d2.doors||[]).find(o=>o.id===last.id);if(dr){dr.x=last.data.x;dr.y=last.data.y;}}
+      else if(last.type==='movePin'){const pn=(d2.pins||[]).find(o=>o.id===last.id);if(pn){pn.x=last.data.x;pn.y=last.data.y;const fk=PIN_FACILITY_MAP[pn.type];if(fk)data.facility[fk]={x:pn.x,y:pn.y};}}
       render();
     };
     toolbar.appendChild(undoBtn);
@@ -1727,12 +1811,12 @@ function renderStepSketch(wrap){
     wrap.appendChild(toolbar);
 
     if(sketchTool==='wall') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'꼭지점을 드래그하여 벽체 수정 · + 버튼으로 꼭지점 추가 · 90° 자동 정렬'));
-    if(sketchTool==='door') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'출입구 위치를 탭하세요'));
+    if(sketchTool==='door') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'사진을 끌어다 놓아 출입구 배치 · 기존 출입구는 끌어서 이동'));
     if(sketchTool==='eraser') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},d2.mode==='photo'?'흔들리는 스티커를 탭하여 삭제':'빨간 원(꼭지점) 또는 흔들리는 스티커를 탭하세요'));
 
     if(sketchTool==='pin'){
       const pinSel = h('div',{style:{marginBottom:'12px'}});
-      pinSel.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'6px'}},'설비 종류 선택 후 캔버스 탭'));
+      pinSel.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'6px'}},'설비 종류 선택 후 사진에 끌어다 놓기 · 기존 설비는 끌어서 이동'));
       const pinChips = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
       PIN_TYPES.forEach(p=>{
         const active = sketchSelectedPin===p.id;
