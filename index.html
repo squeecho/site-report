@@ -1213,7 +1213,7 @@ function openDateModal(value, onChange){
 // ==================== Step Renderers ====================
 function renderStepInfo(wrap){
   makeDatePicker(wrap, data.info.date, v=>{data.info.date=v;});
-  makeField(wrap,'현장명',data.info.siteName, v=>{data.info.siteName=v;},{placeholder:'예: 서울곱창 (마곡발산)'});
+  makeField(wrap,'현장명',data.info.siteName, v=>{data.info.siteName=v;},{placeholder:'예:마곡동 서울곱창'});
   makeAddressSearch(wrap, data.info.address, v=>{data.info.address=v;});
 
   // Manager chips
