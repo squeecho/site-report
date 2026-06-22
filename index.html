@@ -1220,7 +1220,7 @@ function renderStepInfo(wrap){
   const mBox = h('div',{style:{marginBottom:'16px'}});
   mBox.appendChild(h('div',{style:{fontSize:'13px',color:T.text2,marginBottom:'6px',fontWeight:'500'}},'실측담당'));
   const chips = h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});
-  ['LSJ','SSB','LSH'].forEach(o=>{
+  ['LSJ','SSB','LSH','CNE'].forEach(o=>{
     const active = data.info.manager===o;
     const btn = h('button',{style:{padding:'8px 16px',borderRadius:'20px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'14px',cursor:'pointer',fontWeight:active?'600':'400'}},o);
     btn.onclick=()=>{data.info.manager=o;render();};
