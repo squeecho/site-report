@@ -401,6 +401,7 @@ async function loadReport(id){
     if(!doc.exists){
       alert('보고서를 찾을 수 없습니다.');
       viewMode = false;
+      history.replaceState({view:'home'}, '', '/'); // URL에 id가 남아 loadReport가 재호출되는 루프 방지
       render();
       return;
     }
@@ -528,9 +529,10 @@ function inputStyle(){
 const $app = document.getElementById('app');
 
 function render(resetScroll){
-  // Check URL for report ID (shared link)
+  // Check URL for report ID (shared link) — /?id=... 와 정규 주소 /report/... 둘 다 인식
   const params = new URLSearchParams(location.search);
-  const reportId = params.get('id');
+  const pathMatch = location.pathname.match(/^\/report\/([A-Za-z0-9_-]+)$/);
+  const reportId = params.get('id') || (pathMatch ? pathMatch[1] : null);
 
   if(reportId && !viewMode && !data.info.siteName){
     $app.innerHTML = `<div style="min-height:100vh;background:${T.bg};display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px"><div style="width:32px;height:32px;border:3px solid ${T.border3};border-top-color:${T.accent};border-radius:50%;animation:spin 1s linear infinite"></div><div style="color:${T.text3};font-size:14px">보고서 불러오는 중...</div></div>`;
@@ -2097,7 +2099,7 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentDraftId=null;currentView='home';history.replaceState({view:'home'},'',location.pathname);render(true);};
+    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentDraftId=null;currentView='home';history.replaceState({view:'home'},'','/');render(true);};
     navRow.appendChild(homeBtn);
     headerDiv.appendChild(navRow);
   }
@@ -2607,8 +2609,13 @@ window.addEventListener('beforeunload', function(){
   if(currentView==='wizard' && isUnlocked) autoSave();
 });
 
-// Set initial state
-history.replaceState({view:'home'},'');
+// Set initial state — /?id=... 로 진입해도 주소창은 정규 공유주소 /report/... 로 정규화 (주소창 복사 실수 방지)
+const initialQid = new URLSearchParams(location.search).get('id');
+if(initialQid && /^[A-Za-z0-9_-]+$/.test(initialQid)){
+  history.replaceState({view:'home'}, '', '/report/' + initialQid);
+} else {
+  history.replaceState({view:'home'},'');
+}
 
 // ==================== Init ====================
 render();
