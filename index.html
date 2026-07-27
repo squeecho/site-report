@@ -2,6 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<script>
+// 공유 열람(/report/:id, /?id=)은 외부 손님 경로 — SSO 게이트 제외.
+// 그 외(작성 화면)는 ig works 로그인으로 통제(사장 확정 2026-07-27).
+if (!/^\/report\//.test(location.pathname) && !new URLSearchParams(location.search).has('id')) {
+  document.write('<script src="https://www.igggstudio.com/sso-gate.js"><\/script>');
+}
+</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>!G 실측보고서 작성기</title>
 <link rel="icon" href="/favicon.ico" sizes="32x32">
@@ -182,8 +189,8 @@ let saving = false;
 let savingMsg = '저장 중...';
 let viewMode = false; // true when viewing shared report
 let currentView = 'home'; // 'home' | 'wizard' | 'report'
-let isUnlocked = localStorage.getItem('ig_unlocked') === '1'; // auto-login if previously authenticated
-const APP_PIN = '0707'; // ← 여기서 비밀번호 변경
+let isUnlocked = true; // PIN 잠금 제거(2026-07-27) — 입장 통제는 ig works SSO(sso-gate.js)
+const APP_PIN = null; // (제거됨 — SSO 통합)
 let editingId = null; // report ID when editing existing
 let fromWizard = false; // true when previewing from wizard (needs save)
 let reportsList = null; // cached list
