@@ -202,6 +202,15 @@ function ssoRefreshToken(){
   } catch(e){ return ''; }
 }
 
+// 공통 셸 계정 표기용 — 같은 쿠키의 email(표시 전용, 권한 판정에는 쓰지 않는다).
+function ssoEmail(){
+  try {
+    const m = document.cookie.match(/(?:^|; )iggg_sso=([^;]*)/);
+    if(!m) return '';
+    return JSON.parse(decodeURIComponent(m[1]) || 'null')?.email || '';
+  } catch(e){ return ''; }
+}
+
 // 직원 id_token — Firestore 커스텀 토큰 발급과 /api/cloudinary-delete 게이트에 공용.
 // id_token 은 1시간짜리라 만료 5분 전에 재교환한다(보고서를 오래 쓰다 저장·삭제할 때
 // 만료 토큰으로 거부되는 것 방지). 실패는 캐시하지 않는다.
@@ -751,6 +760,27 @@ function fetchReports(){
   });
 }
 
+// ==================== 공통 셸(허브·계정·로그아웃) ====================
+// 12앱 공통 규약 2026-07-28 — 직원 화면(작성 홈)에서만 노출한다.
+// GUEST_ENTRY(고객 공유 열람 경로 = SSO 게이트를 건너뛴 문서)면 렌더하지 않는다:
+// 손님 화면에 직원 UI·직원 계정을 노출하면 안 되고, 손님에겐 쿠키도 없다.
+// 계정 표기는 텍스트 노드로만 만든다(h() 의 children — innerHTML 금지).
+// 로그아웃은 쿠키를 지우고 www 의 전역 로그아웃 진입점으로 — ig-links 040c2b0 과 동일 규약
+// (www 루트로만 가면 세션 정본이 쿠키를 재발급해 로그아웃이 무효였다).
+function renderIgShell(){
+  if(GUEST_ENTRY) return null;
+  const chip = {padding:'6px 10px',borderRadius:'999px',border:'1px solid '+T.border3,background:'transparent',color:T.text3,fontSize:'11px',fontWeight:'600',lineHeight:'1.2',textDecoration:'none',cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit'};
+  const bar = h('div',{class:'ig-shell',style:{display:'flex',alignItems:'center',justifyContent:'flex-end',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}});
+  bar.appendChild(h('a',{href:'https://home.igggstudio.com/',style:chip},'허브'));
+  const email = ssoEmail();
+  if(email) bar.appendChild(h('span',{class:'ig-shell-email',style:{fontSize:'11px',color:T.text4,maxWidth:'46vw',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}, email));
+  bar.appendChild(h('button',{type:'button',style:chip,onClick:function(){
+    document.cookie = 'iggg_sso=; Path=/; Domain=.igggstudio.com; Max-Age=0';
+    location.href = 'https://www.igggstudio.com/?logout=1';
+  }},'로그아웃'));
+  return bar;
+}
+
 function renderHome(){
   const container = h('div',{style:{minHeight:'100vh',background:T.bg,color:T.text,fontFamily:"'Pretendard Variable',-apple-system,sans-serif",overflowY:'auto',height:'100vh',WebkitOverflowScrolling:'touch'}});
   const inner = h('div',{style:{maxWidth:'520px',margin:'0 auto',padding:'24px 20px 120px'}});
@@ -762,6 +792,10 @@ function renderHome(){
       <h1 style="font-size:26px;font-weight:700;margin:0;color:${T.text}">실측보고서</h1>
       <div style="font-size:14px;color:${T.text3};margin-top:4px">현장체크를 쉽고 꼼꼼하게</div>
     </div>`;
+
+  // 공통 셸 — 헤더 위 우측 정렬(innerHTML 설정 뒤에 넣어야 지워지지 않는다)
+  const igShell = renderIgShell();
+  if(igShell) inner.insertBefore(igShell, inner.firstChild);
 
   // New report button
   const newBtn = h('button',{style:{width:'100%',padding:'18px 20px',borderRadius:'14px',border:'none',background:T.accent,color:T.accentText,fontSize:'16px',fontWeight:'700',cursor:'pointer',marginBottom:'32px',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}});
