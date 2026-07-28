@@ -511,10 +511,50 @@ async function saveReport(){
   }
 }
 
+// ==================== 손님 열람 실패 화면 (잘못·만료된 공유 링크) ====================
+// GUEST_ENTRY 문서에서 로드가 실패하면 '/'로 보낼 수 없다 — head 의 sso-gate.js 가
+// 비로그인 손님을 로그인으로 튕겨 재로그인 루프/백지가 된다(백로그 2026-07-28).
+// 대신 이 화면을 렌더하고 상태를 남긴다: 이후 render() 재진입(테마 변경 등)에서도
+// 스피너로 되돌아가 로드를 무한 재시도하지 않는다.
+let guestLoadError = null; // null | {kind:'notfound'|'network', detail:string}
+
+function showGuestLoadError(kind, err){
+  guestLoadError = { kind: kind, detail: (err && err.message) ? String(err.message) : '' };
+  viewMode = false;
+  showReport = false;
+  renderGuestLoadError();
+}
+
+function renderGuestLoadError(){
+  const e = guestLoadError || { kind:'notfound', detail:'' };
+  const notFound = e.kind !== 'network';
+  const title = notFound ? '보고서를 찾을 수 없습니다' : '보고서를 불러오지 못했습니다';
+  const desc  = notFound
+    ? '링크가 만료되었거나 잘못되었습니다.<br>담당자에게 새 링크를 요청해 주세요.'
+    : '네트워크 연결을 확인한 뒤 다시 시도해 주세요.<br>계속 안 되면 담당자에게 새 링크를 요청해 주세요.';
+  document.title = '실측보고서 | 이견공간';
+  document.body.style.background = T.bg;
+  $app.innerHTML = `
+    <div style="min-height:100vh;background:${T.bg};color:${T.text};font-family:'Pretendard Variable',-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;padding:20px">
+      <div style="width:100%;max-width:340px;text-align:center">
+        <div style="font-size:11px;color:${T.text3};letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">이견공간기획</div>
+        <div style="width:56px;height:56px;margin:0 auto 20px;border-radius:50%;border:1px solid ${T.border3};display:flex;align-items:center;justify-content:center;font-size:24px;color:${T.text3}">!</div>
+        <div style="font-size:19px;font-weight:700;color:${T.text};margin-bottom:10px">${title}</div>
+        <div style="font-size:14px;line-height:1.6;color:${T.text2};margin-bottom:28px">${desc}</div>
+        <button id="guestRetryBtn" style="width:100%;padding:14px;border-radius:12px;border:none;background:${T.accent};color:${T.accentText};font-size:15px;font-weight:700;cursor:pointer;font-family:inherit">다시 시도</button>
+        ${e.detail && !notFound ? `<div style="margin-top:16px;font-size:11px;color:${T.text4};word-break:break-all">${esc(e.detail)}</div>` : ''}
+      </div>
+    </div>`;
+  const btn = document.getElementById('guestRetryBtn');
+  if(btn) btn.onclick = () => location.reload();
+}
+
 async function loadReport(id){
   try {
     const doc = await db.collection('reports').doc(id).get();
     if(!doc.exists){
+      // 손님(공유 링크) — 로그인 게이트로 튕기지 말고 안내 화면을 보여준다.
+      if(GUEST_ENTRY){ showGuestLoadError('notfound'); return; }
       alert('보고서를 찾을 수 없습니다.');
       viewMode = false;
       // replaceState+render 는 문서를 재로드하지 않아 SSO 게이트가 재평가되지 않는다
@@ -540,6 +580,8 @@ async function loadReport(id){
     render();
   } catch(err){
     console.error('Load error:', err);
+    // 손님(공유 링크) — alert 만 띄우면 스피너 화면이 그대로 멈춰 있었다.
+    if(GUEST_ENTRY){ showGuestLoadError('network', err); return; }
     alert('보고서 불러오기 실패: ' + err.message);
   }
 }
@@ -647,6 +689,10 @@ function inputStyle(){
 const $app = document.getElementById('app');
 
 function render(resetScroll){
+  // 손님 링크 로드 실패가 확정된 문서 — 스피너/작성 홈으로 되돌아가지 않는다.
+  // (테마 변경 리스너 등 render() 재진입 경로가 로드를 무한 재시도하는 것도 막는다)
+  if(guestLoadError){ renderGuestLoadError(); return; }
+
   // Check URL for report ID (shared link) — /?id=... 와 정규 주소 /report/... 둘 다 인식
   const params = new URLSearchParams(location.search);
   const pathMatch = location.pathname.match(/^\/report\/([A-Za-z0-9_-]+)$/);
@@ -935,7 +981,11 @@ async function deleteReport(id){
 async function loadReportForEdit(id){
   try {
     const doc = await db.collection('reports').doc(id).get();
-    if(!doc.exists){ alert('보고서를 찾을 수 없습니다.'); currentView='home'; render(); return; }
+    // 방어: 손님 경로에서는 currentView='home' 으로 되돌리면 작성 홈이 노출된다(GUEST_ENTRY 규약).
+    if(!doc.exists){
+      if(GUEST_ENTRY){ showGuestLoadError('notfound'); return; }
+      alert('보고서를 찾을 수 없습니다.'); currentView='home'; render(); return;
+    }
     const d = doc.data();
     data = {
       info: d.info || makeInitialData().info,
@@ -954,6 +1004,7 @@ async function loadReportForEdit(id){
     navigateTo('report');
   } catch(err){
     console.error('Load error:', err);
+    if(GUEST_ENTRY){ showGuestLoadError('network', err); return; }
     alert('불러오기 실패: '+err.message);
     currentView='home';
     render();
