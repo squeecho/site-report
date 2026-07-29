@@ -351,28 +351,152 @@ function compressImage(file, maxSize=1200, quality=0.7){
 }
 
 // ==================== Firebase Upload ====================
-let uploadTotal = 0, uploadDone = 0;
+let uploadTotal = 0, uploadDone = 0, uploadFailed = 0, uploadRetrying = 0;
 
-async function uploadPhoto(dataUrl, reportId, idx){
-  // Cloudinary unsigned 업로드 (data URI를 그대로 전송 — WebP/JPEG 포맷 유지)
-  const form = new FormData();
-  form.append('file', dataUrl);
-  form.append('upload_preset', CLOUDINARY.uploadPreset);
-  form.append('folder', `reports/${reportId}`);
-  const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/image/upload`, {
-    method:'POST', body: form
-  });
-  if(!resp.ok){
-    const t = await resp.text();
-    throw new Error('사진 업로드 실패 (Cloudinary): ' + t);
-  }
-  const json = await resp.json();
-  uploadDone++;
-  savingMsg = `사진 업로드 ${uploadDone}/${uploadTotal}`;
-  // Update button text without full re-render
+// 장당 1회 시도 제한 — 무한 대기 금지(현장 LTE 에서 압축사진 1장 ≈100~300KB 전송 여유값)
+const PHOTO_UPLOAD_TIMEOUT_MS = 45000;
+// 최초 1회 + 자동 재시도 2회 (끊기는 현장 통신은 대부분 두 번째 시도에서 붙는다)
+const PHOTO_UPLOAD_ATTEMPTS = 3;
+// 동시 업로드 상한 — 수십 장을 한꺼번에 fetch 하면 브라우저의 호스트당 연결한도(≈6)에 걸려
+// 뒤 요청이 '큐에서 대기'만 하다가 타임아웃으로 오판된다. 몇 장씩 흘려보내야 타임아웃이
+// 실제 전송 시간을 잰다(통신 나쁜 현장에서 성공률도 올라간다).
+const PHOTO_UPLOAD_CONCURRENCY = 4;
+
+let _uploadSlots = 0;
+const _uploadWaiters = [];
+function _acquireUploadSlot(){
+  if(_uploadSlots < PHOTO_UPLOAD_CONCURRENCY){ _uploadSlots++; return Promise.resolve(); }
+  return new Promise(res => _uploadWaiters.push(res)); // executor 안에서 await/throw 하지 않는다
+}
+function _releaseUploadSlot(){
+  const next = _uploadWaiters.shift();
+  if(next) next(); else _uploadSlots--;
+}
+
+// 저장 버튼 문구만 갱신 (전체 re-render 없이)
+function refreshSaveBtn(){
   const btn = document.querySelector('[data-save-btn]');
   if(btn) btn.innerHTML = `<div style="width:18px;height:18px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
-  return json.secure_url;
+}
+
+// 진행률은 '성공 + 실패'로 센다 — 실패를 세지 않으면 한 장만 실패해도 표시가 영영 멈춘 것처럼 보인다.
+// 저장 버튼이 좁아서(폰에서 ≈170px) 부가 표시는 한 개만 짧게 붙인다.
+// 실측(390px 폰 렌더): '사진 28/28 · 실패 12' 까지 한 줄, 그보다 길면 버튼이 두 줄로 깨진다.
+function bumpUploadProgress(){
+  if(uploadTotal <= 0) return;
+  const settled = uploadDone + uploadFailed;
+  if(uploadFailed > 0) savingMsg = `사진 ${settled}/${uploadTotal} · 실패 ${uploadFailed}`;
+  else if(uploadRetrying > 0) savingMsg = `사진 ${settled}/${uploadTotal} · 재시도`;
+  else savingMsg = `사진 업로드 ${settled}/${uploadTotal}`;
+  refreshSaveBtn();
+}
+
+async function uploadPhoto(dataUrl, reportId, idx, onRetry){
+  // Cloudinary unsigned 업로드 (data URI를 그대로 전송 — WebP/JPEG 포맷 유지)
+  // 시도마다 AbortController 로 타임아웃을 걸고(응답이 영영 안 와도 끝난다),
+  // 네트워크·5xx 는 잠깐 쉬었다 재시도한다.
+  let lastErr = null;
+  for(let attempt = 1; attempt <= PHOTO_UPLOAD_ATTEMPTS; attempt++){
+    if(attempt > 1 && onRetry) onRetry(attempt);
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = setTimeout(()=>{ try{ if(ctrl) ctrl.abort(); }catch(e){} }, PHOTO_UPLOAD_TIMEOUT_MS);
+    try {
+      const form = new FormData();
+      form.append('file', dataUrl);
+      form.append('upload_preset', CLOUDINARY.uploadPreset);
+      form.append('folder', `reports/${reportId}`);
+      const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/image/upload`, {
+        method:'POST', body: form, signal: ctrl ? ctrl.signal : undefined
+      });
+      if(!resp.ok){
+        const t = await resp.text();
+        const err = new Error(`사진 업로드 실패 (Cloudinary ${resp.status}): ` + t);
+        // 4xx = 설정·용량 문제라 다시 보내도 같은 결과 → 재시도로 시간 낭비하지 않는다.
+        if(resp.status >= 400 && resp.status < 500) err.noRetry = true;
+        throw err;
+      }
+      const json = await resp.json();
+      return json.secure_url;
+    } catch(err){
+      lastErr = err;
+      if(err && err.noRetry) break;
+      if(attempt < PHOTO_UPLOAD_ATTEMPTS) await new Promise(res => setTimeout(res, 1500 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr || new Error('사진 업로드 실패');
+}
+
+// 사진 1장 업로드 작업 — 실패해도 절대 reject 하지 않고 '원본 data:' 를 그대로 돌려준다.
+// ⚠ 예전 구현은 호출부가 new Promise(async (resolve) => { await uploadPhoto(...) }) 였다.
+//    async executor 안에서 던져진 예외는 아무도 받지 못해 그 Promise 가 영원히 settle 되지 않았고,
+//    Promise.all 이 무한 대기 → 진행률 고정 → 본문(측정값·설비·전기)까지 통째로 저장되지 않았다.
+//    그래서 Promise 생성자를 쓰지 않고 async 함수를 그대로 쓴다.
+async function uploadPhotoSettled(dataUrl, reportId, idx){
+  await _acquireUploadSlot();
+  let retried = false;
+  try {
+    const url = await uploadPhoto(dataUrl, reportId, idx, ()=>{
+      if(!retried){ retried = true; uploadRetrying++; }
+      bumpUploadProgress();
+    });
+    uploadDone++;
+    return url;
+  } catch(err){
+    uploadFailed++;
+    console.warn('[upload] 사진 업로드 실패 — 본문 저장은 계속합니다:', (err && err.message) || err);
+    return dataUrl;   // 실패분은 원본 유지 → 로컬에 남아 '사진 다시 올리기'로 재시도 가능
+  } finally {
+    if(retried) uploadRetrying--;
+    _releaseUploadSlot();
+    bumpUploadProgress();
+  }
+}
+
+// 섹션별 사진 필드 목록 — 개수 집계·업로드 큐·저장 투영에서 공통 사용
+const PHOTO_FIELDS = {
+  facility: ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos'],
+  electric: ['panelPhotos','hvacPhotos','notesPhotos'],
+  construction: ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos'],
+  etc: ['illegalBuildingPhotos','leakPhotos','notesPhotos'],
+};
+
+// Firestore 저장용 투영 — 아직 업로드되지 않은 data: 사진만 빼고 나머지는 전부 저장한다.
+//  (1) data URI 를 그대로 넣으면 문서 1MiB 한도를 넘겨 '본문까지' 저장이 통째로 실패한다.
+//  (2) 업로드 실패한 사진만 빠지고 본문·성공한 사진은 그대로 남는다.
+// 원본(src)은 건드리지 않는다 — 로컬 state 에는 실패한 data: 를 남겨 재시도할 수 있어야 한다.
+function buildSaveData(src){
+  const out = {};
+  for(const [key, val] of Object.entries(src)){
+    if(val !== undefined && val !== null) out[key] = val;
+  }
+  const pending = u => typeof u === 'string' && u.startsWith('data:');
+  if(out.photos){
+    // 실내사진은 interiorTags 와 인덱스가 1:1 — 반드시 짝을 맞춰 함께 제외한다(구역 라벨 밀림 방지)
+    const tags = out.photos.interiorTags || [];
+    const kept = (out.photos.interior || []).map((u,i)=>({u, t: tags[i] || ''})).filter(p => !pending(p.u));
+    out.photos = {...out.photos, interior: kept.map(p=>p.u), interiorTags: kept.map(p=>p.t),
+      exterior: (out.photos.exterior || []).filter(u => !pending(u))};
+  }
+  if(out.sketch){
+    out.sketch = {...out.sketch};
+    if(pending(out.sketch.drawing)) out.sketch.drawing = null;
+    if(pending(out.sketch.bgPhoto)) out.sketch.bgPhoto = null;
+  }
+  if(out.measure){
+    out.measure = {...out.measure, floorPlan: (out.measure.floorPlan || []).filter(u => !pending(u))};
+  }
+  for(const [section, keys] of Object.entries(PHOTO_FIELDS)){
+    if(!out[section]) continue;
+    out[section] = {...out[section]};
+    for(const k of keys) if(Array.isArray(out[section][k])) out[section][k] = out[section][k].filter(u => !pending(u));
+  }
+  // Remove _custom flags from panel entries
+  if(out.electric && out.electric.panelEntries){
+    out.electric = {...out.electric, panelEntries: out.electric.panelEntries.map(e => ({phase:e.phase, amps:e.amps}))};
+  }
+  return out;
 }
 
 async function saveReport(){
@@ -384,6 +508,7 @@ async function saveReport(){
   saving = true;
   render();
 
+  let bodySaved = false;   // 본문 우선 저장이 끝났는지 — 실패 안내 문구를 정확히 하기 위해
   try {
     // 규칙(create/update=staff)상 직원 서명이 먼저 끝나야 한다. 실패해도 진행 —
     // 규칙 적용 전엔 그대로 저장되고, 적용 후엔 아래 write 가 거부되어 catch 로 간다.
@@ -409,16 +534,20 @@ async function saveReport(){
       reportId = docRef.id;
     }
 
-    // Deep clone data for upload
+    // Deep clone data for upload — 업로드 결과(성공=URL, 실패=원본 data:)가 여기에 반영된다
     const uploadData = JSON.parse(JSON.stringify(data));
 
-    // 섹션별 사진 필드 목록 — 개수 집계·업로드 큐·결과 반영에서 공통 사용
-    const PHOTO_FIELDS = {
-      facility: ['waterMeterPhotos','waterSupplyPhotos','drainagePhotos','ductPhotos','gasEntryPhotos','gasHeaterPhotos','notesPhotos'],
-      electric: ['panelPhotos','hvacPhotos','notesPhotos'],
-      construction: ['parkingPhotos','materialRoutePhotos','stairElevatorPhotos','buildingProtectionPhotos','notesPhotos'],
-      etc: ['illegalBuildingPhotos','leakPhotos','notesPhotos'],
-    };
+    // [본문 우선 저장] 사진보다 본문(측정값·설비·전기·공사 등)을 먼저 확정 저장한다.
+    // 사진 업로드가 실패하거나 도중에 앱이 꺼져도 본문은 서버에 남는다.
+    // 아직 업로드 안 된 data: 사진만 빠지고, 전에 업로드해 둔 https 사진은 그대로 유지된다.
+    savingMsg = '본문 저장 중...';
+    render();
+    await docRef.update({
+      ...buildSaveData(uploadData),
+      status: 'complete',   // 목록은 status==='complete' 만 노출 — 본문이 즉시 목록에 남게 한다
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    bodySaved = true;
 
     // Count total photos to upload for progress
     const countDataUrls = arr => (arr||[]).filter(u=>typeof u==='string'&&u.startsWith('data:')).length;
@@ -427,21 +556,20 @@ async function saveReport(){
       + countDataUrls(data.measure.floorPlan);
     for(const [section, keys] of Object.entries(PHOTO_FIELDS))
       for(const k of keys) uploadTotal += countDataUrls(data[section][k]);
-    uploadDone = 0;
+    uploadDone = 0; uploadFailed = 0; uploadRetrying = 0;
     savingMsg = uploadTotal > 0 ? `사진 업로드 0/${uploadTotal}` : '저장 중...';
     render();
 
     // Collect ALL photos that need uploading
     let photoIdx = 0;
 
+    // 업로드 작업은 uploadPhotoSettled 로만 만든다 — 실패해도 reject 하지 않으므로
+    // Promise.all 이 멈추지 않고, 실패분은 원본 data: 가 그대로 돌아온다.
     const queueArr = (arr) => {
-      return arr.map(dataUrl => {
-        if(dataUrl.startsWith('data:')){
+      return (arr || []).map(dataUrl => {
+        if(typeof dataUrl === 'string' && dataUrl.startsWith('data:')){
           const idx = photoIdx++;
-          return new Promise(async (resolve) => {
-            const url = await uploadPhoto(dataUrl, reportId, idx);
-            resolve(url);
-          });
+          return uploadPhotoSettled(dataUrl, reportId, idx);
         }
         return Promise.resolve(dataUrl);
       });
@@ -450,8 +578,8 @@ async function saveReport(){
     // Queue all photo uploads
     const extP = queueArr(data.photos.exterior);
     const intP = queueArr(data.photos.interior);
-    const skDrawP = (data.sketch.drawing && data.sketch.drawing.startsWith('data:')) ? uploadPhoto(data.sketch.drawing, reportId, photoIdx++).then(u=>{uploadData.sketch.drawing=u;}) : null;
-    const skBgP = (data.sketch.bgPhoto && data.sketch.bgPhoto.startsWith('data:')) ? uploadPhoto(data.sketch.bgPhoto, reportId, photoIdx++).then(u=>{uploadData.sketch.bgPhoto=u;}) : null;
+    const skDrawP = (data.sketch.drawing && data.sketch.drawing.startsWith('data:')) ? uploadPhotoSettled(data.sketch.drawing, reportId, photoIdx++).then(u=>{uploadData.sketch.drawing=u;}) : null;
+    const skBgP = (data.sketch.bgPhoto && data.sketch.bgPhoto.startsWith('data:')) ? uploadPhotoSettled(data.sketch.bgPhoto, reportId, photoIdx++).then(u=>{uploadData.sketch.bgPhoto=u;}) : null;
 
     // 섹션별 사진 업로드 큐 (PHOTO_FIELDS 기반)
     const sectionJobs = {};
@@ -473,24 +601,18 @@ async function saveReport(){
       for(const [k,jobs] of Object.entries(jobsMap)) uploadData[section][k] = await Promise.all(jobs);
     if(fpP) uploadData.measure.floorPlan = await Promise.all(fpP);
 
-    // Save complete data - remove non-serializable fields
-    savingMsg = '데이터 저장 중...';
-    const btn2 = document.querySelector('[data-save-btn]');
-    if(btn2) btn2.innerHTML = `<div style="width:18px;height:18px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite"></div> ${savingMsg}`;
-    const saveData = {};
-    for(const [key, val] of Object.entries(uploadData)){
-      if(val !== undefined && val !== null) saveData[key] = val;
+    // Save complete data — 업로드 성공한 사진 URL을 본문에 합쳐 다시 쓴다
+    // (실패분은 buildSaveData 가 제외 → 서버에는 안 들어가고 로컬에만 남아 재시도 대상이 된다)
+    // 올릴 사진이 애초에 없었다면 위 '본문 우선 저장'이 이미 최종본 — 같은 내용을 또 쓰지 않는다.
+    if(uploadTotal > 0){
+      savingMsg = '데이터 저장 중...';
+      refreshSaveBtn();
+      await docRef.update({
+        ...buildSaveData(uploadData),
+        status: 'complete',
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
     }
-    // Remove _custom flags from panel entries
-    if(saveData.electric?.panelEntries){
-      saveData.electric.panelEntries = saveData.electric.panelEntries.map(e => ({phase:e.phase,amps:e.amps}));
-    }
-
-    await docRef.update({
-      ...saveData,
-      status: 'complete',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
 
     // Show share link
     const shareUrl = `${location.origin}/report/${reportId}`;
@@ -498,16 +620,26 @@ async function saveReport(){
     editingId = reportId;
     reportsList = null;
     // Update local data with uploaded URLs to avoid re-upload on next save
+    // (실패한 사진은 data: 그대로 남는다 → '사진 다시 올리기'가 실패분만 다시 올린다)
     data = JSON.parse(JSON.stringify(uploadData));
-    clearCurrentDraft();
-    render();
-    showShareModal(shareUrl, reportId);
+    if(uploadFailed > 0){
+      // 올리지 못한 사진이 남았으면 임시저장(드래프트)을 지우지 않는다 — 앱을 닫아도 재시도할 수 있어야 한다
+      autoSave();
+      render();
+      showShareModal(shareUrl, reportId, uploadFailed, uploadTotal);
+    } else {
+      clearCurrentDraft();
+      render();
+      showShareModal(shareUrl, reportId);
+    }
 
   } catch(err){
     console.error('Save error:', err);
     saving = false;
     render();
-    setTimeout(()=>alert('저장 중 오류가 발생했습니다:\n' + err.message), 100);
+    // 본문 우선 저장 이후에 터진 오류면 본문은 이미 서버에 있다 — 있는 그대로 알린다.
+    const tail = bodySaved ? '\n\n측정값·설비·전기 등 본문은 이미 저장되었습니다.\n통신이 되는 곳에서 다시 저장하면 사진만 올라갑니다.' : '';
+    setTimeout(()=>alert('저장 중 오류가 발생했습니다:\n' + err.message + tail), 100);
   }
 }
 
@@ -650,18 +782,38 @@ function openLightbox(photos, startIdx){
 }
 
 // ==================== Share Modal ====================
-function showShareModal(url, reportId){
+// failedCount/totalCount 를 넘기면 '본문은 저장됨 + 사진 N장 실패 + 다시 올리기' 안내로 바뀐다.
+// (둘 다 숫자라 문자열 주입 위험 없음)
+function showShareModal(url, reportId, failedCount, totalCount){
+  const failed = Number(failedCount) || 0;
+  const total = Number(totalCount) || 0;
   const modal = document.createElement('div');
   modal.style.cssText = `position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px`;
   modal.innerHTML = `
     <div style="background:${T.bg2};border-radius:16px;padding:24px;width:100%;max-width:400px;text-align:center">
-      <div style="font-size:40px;margin-bottom:12px">✅</div>
-      <div style="font-size:18px;font-weight:700;color:${T.text};margin-bottom:8px">저장 완료!</div>
-      <div style="font-size:13px;color:${T.text3};margin-bottom:20px">아래 링크를 공유하세요</div>
+      <div style="font-size:40px;margin-bottom:12px">${failed > 0 ? '⚠️' : '✅'}</div>
+      <div style="font-size:18px;font-weight:700;color:${T.text};margin-bottom:8px">${failed > 0 ? '본문 저장 완료 · 사진 일부 실패' : '저장 완료!'}</div>
+      ${failed > 0
+        ? `<div style="background:rgba(220,38,38,0.12);border:1px solid rgba(220,38,38,0.4);border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px;line-height:1.7;color:${T.text};text-align:left">
+             사진 ${total}장 중 <b>${failed}장</b>이 올라가지 않았습니다.<br>
+             측정값·설비·전기 등 <b>본문은 저장되었습니다.</b><br>
+             통신이 되는 곳에서 아래 <b>사진 다시 올리기</b>를 눌러주세요.
+           </div>`
+        : `<div style="font-size:13px;color:${T.text3};margin-bottom:20px">아래 링크를 공유하세요</div>`}
       <div style="background:${T.bg3};border-radius:10px;padding:12px;margin-bottom:16px;word-break:break-all;font-size:13px;color:${T.text2}">${url}</div>
       <button onclick="navigator.clipboard.writeText('${url}');this.textContent='복사됨!';setTimeout(()=>this.textContent='링크 복사',1500)" style="width:100%;padding:14px;border-radius:12px;border:none;background:${T.accent};color:${T.accentText};font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px">링크 복사</button>
-      <button onclick="this.closest('div[style*=fixed]').remove()" style="width:100%;padding:12px;border-radius:12px;border:1px solid ${T.border3};background:transparent;color:${T.text2};font-size:14px;cursor:pointer">닫기</button>
+      <button data-share-close="1" onclick="this.closest('div[style*=fixed]').remove()" style="width:100%;padding:12px;border-radius:12px;border:1px solid ${T.border3};background:transparent;color:${T.text2};font-size:14px;cursor:pointer">닫기</button>
     </div>`;
+  if(failed > 0){
+    // 재시도 버튼은 DOM 으로 붙인다(인라인 핸들러 스코프·이스케이프 문제 회피).
+    // 다시 저장하면 아직 data: 로 남은 실패분만 업로드된다.
+    const retryBtn = document.createElement('button');
+    retryBtn.textContent = `📷 사진 다시 올리기 (${failed}장)`;
+    retryBtn.style.cssText = `width:100%;padding:14px;border-radius:12px;border:none;background:#dc2626;color:#fff;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px`;
+    retryBtn.onclick = () => { modal.remove(); saveReport(); };
+    const closeBtn = modal.querySelector('[data-share-close]');
+    closeBtn.parentNode.insertBefore(retryBtn, closeBtn);
+  }
   document.body.appendChild(modal);
   modal.addEventListener('click', e => { if(e.target === modal) modal.remove(); });
 }
