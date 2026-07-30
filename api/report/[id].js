@@ -137,15 +137,19 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // API Key 인증
+  // API Key 인증 — **fail-closed**(감사 2026-07-30 백로그 #16).
+  // ⚠예전엔 `if (apiKey)` 로 감싸 **키 미설정이면 검사를 통째로 건너뛰었다**.
+  //   키를 지우거나 회전 중 오타가 나면 주소·담당자·전 사진 URL·전 실측값이
+  //   무인증 공개된다(CORS 도 `*`). 같은 리포의 cloudinary-delete.js 는 이미
+  //   fail-closed 다 — 그 규약으로 통일한다. 로컬 개발은 .env 에 키를 넣어 쓴다.
   const apiKey = process.env.IGGG_API_KEY;
-  if (apiKey) {
-    const provided = req.headers["x-api-key"];
-    if (provided !== apiKey) {
-      return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key" });
-    }
+  if (!apiKey) {
+    console.error("[report/[id]] IGGG_API_KEY 미설정 — 요청 거부(fail-closed)");
+    return res.status(503).json({ error: "서버 설정 오류: 인증 키가 없습니다." });
   }
-  // apiKey 미설정 시 인증 스킵 (개발 편의)
+  if (req.headers["x-api-key"] !== apiKey) {
+    return res.status(401).json({ error: "Unauthorized: invalid or missing x-api-key" });
+  }
 
   // Report ID
   const { id } = req.query;
