@@ -1091,7 +1091,8 @@ function renderHome(){
                  32px 라 터치 최소치(44px)에 미달, 열기 화살표와 8px 간격이라 오탭이 쉬웠다
                  (실브라우저 관측 2026-07-29). 위험색 + 44px + 간격 확대. -->
             <button class="del-btn" aria-label="보고서 삭제" style="width:44px;height:44px;border-radius:8px;border:1px solid ${T.border3};background:transparent;color:${T.danger};font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-right:6px">🗑</button>
-            <div style="font-size:18px;color:${T.text3}">›</div>
+            ${report.deleted ? `<button class="purge-btn" aria-label="완전삭제" style="height:44px;padding:0 12px;border-radius:8px;border:1px solid ${T.danger};background:transparent;color:${T.danger};font-size:13px;font-weight:600;cursor:pointer;margin-right:6px;white-space:nowrap">완전삭제</button>` : ''}
+            <div style="font-size:18px;color:${T.text3}">${report.deleted ? '' : '›'}</div>
           </div>
         </div>`;
 
@@ -1099,7 +1100,16 @@ function renderHome(){
       const delBtn = card.querySelector('.del-btn');
       if(report.deleted){
         delBtn.textContent = '복원';
+        delBtn.style.color = T.accent;
+        delBtn.style.borderColor = T.accent;
+        delBtn.style.width = 'auto';
+        delBtn.style.padding = '0 12px';
+        delBtn.style.fontSize = '13px';
+        delBtn.style.fontWeight = '600';
         delBtn.onclick = (e) => { e.stopPropagation(); restoreReport(report.id); };
+        // 완전삭제는 **여기서만** 되돌릴 수 없다 — 버튼으로 분명히 꺼낸다(사장 요청)
+        const purgeBtn = card.querySelector('.purge-btn');
+        if(purgeBtn) purgeBtn.onclick = (e) => { e.stopPropagation(); purgeReport(report.id, siteName); };
       } else {
         delBtn.onclick = (e) => {
           e.stopPropagation();
@@ -1113,12 +1123,8 @@ function renderHome(){
       card.onmouseleave = () => { card.style.transform=''; };
 
       card.onclick = () => {
-        if(report.deleted){
-          // 삭제된 것은 열지 않는다 — 복원하거나 완전삭제만 한다
-          if(confirm(`"${siteName}" — 복원하려면 [복원]을 누르세요.\n\n지금 완전히 삭제할까요?`))
-            purgeReport(report.id, siteName);
-          return;
-        }
+        // 삭제된 것은 열지 않는다 — [복원] 또는 [완전삭제] 버튼으로만 처리한다
+        if(report.deleted) return;
         // Load and view this report
         $app.innerHTML = `<div style="min-height:100vh;background:${T.bg};display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px"><div style="width:32px;height:32px;border:3px solid ${T.border3};border-top-color:${T.accent};border-radius:50%;animation:spin 1s linear infinite"></div><div style="color:${T.text3};font-size:14px">불러오는 중...</div></div>`;
         loadReportForEdit(report.id);
