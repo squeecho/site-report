@@ -1845,7 +1845,7 @@ function renderStepSketch(wrap){
   ['draw','photo'].forEach(m=>{
     const active = d2.mode===m;
     const btn = h('button',{style:{flex:'1',padding:'10px 0',borderRadius:'10px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:'transparent',color:active?T.chipActiveText:T.text2,fontSize:'14px',cursor:'pointer',fontWeight:'600'}},m==='draw'?'✏️ 직접 스케치':'📷 사진 위 마킹');
-    btn.onclick=()=>{d2.mode=m;render();};
+    btn.onclick=()=>{d2.mode=m;invalidateSketchImage();render();};
     modeRow.appendChild(btn);
   });
   wrap.appendChild(modeRow);
@@ -1853,12 +1853,20 @@ function renderStepSketch(wrap){
   if(d2.mode==='photo' && !d2.bgPhoto){
     const uploadBtn = h('button',{style:{width:'100%',padding:'40px 0',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'14px',cursor:'pointer',marginBottom:'16px'}},'🖼 앨범에서 사진 불러오기');
     const fileInput = h('input',{type:'file',accept:'image/*',style:{display:'none'}});
-    fileInput.onchange=e=>{const f=e.target.files[0];if(f){compressImage(f,2000,0.85).then(src=>{d2.bgPhoto=src;render();});}e.target.value='';};
+    fileInput.onchange=e=>{const f=e.target.files[0];if(f){compressImage(f,2000,0.85).then(src=>{d2.bgPhoto=src;invalidateSketchImage();render();});}e.target.value='';};
     uploadBtn.onclick=()=>fileInput.click();
     wrap.appendChild(uploadBtn);
     wrap.appendChild(fileInput);
     return;
   }
+
+  // ⚠도면 이미지 무효화(감사 2026-07-29 #136). 저장된 보고서를 다시 열면
+  //   d2.drawing 이 https URL 이라, 그대로 두면 drawCanvas(true) 의 재캡처
+  //   조건이 **둘 다 거짓**이 되어 바뀐 도면이 저장되지 않는다.
+  //   도면 내용을 바꾸는 모든 동작이 이걸 부른다.
+  var invalidateSketchImage = function(){
+    if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
+  };
 
   if(d2.mode==='draw' || d2.bgPhoto){
     const canvasWrap = h('div',{style:{position:'relative',marginBottom:'12px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${T.border2}`,touchAction:'none'}});
