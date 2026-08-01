@@ -945,10 +945,14 @@ function renderLock(){
 }
 
 // ==================== Home Screen ====================
+// [삭제한 보고서] 펼침 여부 — 소프트 삭제(#142)의 복원 통로.
+let showDeleted = false;
+
 function fetchReports(){
   if(!db) { reportsList=[]; render(); return; }
   // 목록(list)은 규칙상 staff 클레임 필요 → 직원 서명 완료 후 조회.
   staffSignIn().then(()=>db.collection('reports').orderBy('createdAt','desc').limit(50).get()).then(snap=>{
+    // 삭제 표시된 것은 목록에서 빼되 버리지 않는다 — [삭제한 보고서]에서 복원한다(#142)
     reportsList = snap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(r=>r.status==='complete');
     render();
   }).catch(err=>{
@@ -1045,18 +1049,28 @@ function renderHome(){
     listHeader.appendChild(refreshBtn);
     inner.appendChild(listHeader);
     fetchReports();
-  } else if(reportsList.length===0){
+  } else if(reportsList.filter(r=>!r.deleted).length===0 && !showDeleted){
     inner.appendChild(listHeader);
     inner.appendChild(h('div',{style:{textAlign:'center',padding:'40px 0',color:T.text4,fontSize:'14px'}},'아직 저장된 보고서가 없습니다'));
   } else {
     const refreshBtn = h('button',{style:{background:'none',border:'none',color:T.text3,fontSize:'13px',cursor:'pointer',padding:'4px 8px'}});
     refreshBtn.textContent = '새로고침';
     refreshBtn.onclick = () => { reportsList=null; render(); };
+    // [삭제한 보고서] 토글 — 소프트 삭제의 복원 통로(#142). 있을 때만 보여준다.
+    const delCount = reportsList.filter(r=>r.deleted).length;
+    if(delCount || showDeleted){
+      const trashBtn = h('button',{style:{background:'none',border:'none',color:showDeleted?T.accent:T.text3,fontSize:'13px',cursor:'pointer',padding:'4px 8px',fontWeight:showDeleted?'600':'400'}});
+      trashBtn.textContent = showDeleted ? '← 목록으로' : `삭제한 보고서 ${delCount}`;
+      trashBtn.onclick = () => { showDeleted = !showDeleted; render(); };
+      listHeader.appendChild(trashBtn);
+    }
     listHeader.appendChild(refreshBtn);
     inner.appendChild(listHeader);
 
     const list = h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}});
-    reportsList.forEach(report=>{
+    // 삭제 표시된 것은 기본 목록에서 뺀다 — 아래 [삭제한 보고서]에서 복원(#142)
+    const deletedOnes = reportsList.filter(r=>r.deleted);
+    (showDeleted ? deletedOnes : reportsList.filter(r=>!r.deleted)).forEach(report=>{
       const info = report.info || {};
       const date = info.date || '';
       const siteName = info.siteName || '이름 없음';
@@ -1081,18 +1095,30 @@ function renderHome(){
           </div>
         </div>`;
 
-      // Delete button
-      card.querySelector('.del-btn').onclick = (e) => {
-        e.stopPropagation();
-        if(confirm(`"${siteName}" 보고서를 삭제하시겠습니까?\n사진 포함 완전히 삭제됩니다.`)){
-          deleteReport(report.id);
-        }
-      };
+      // Delete button — 삭제한 목록에서는 [복원]으로 바뀐다(#142)
+      const delBtn = card.querySelector('.del-btn');
+      if(report.deleted){
+        delBtn.textContent = '복원';
+        delBtn.onclick = (e) => { e.stopPropagation(); restoreReport(report.id); };
+      } else {
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          if(confirm(`"${siteName}" 보고서를 삭제할까요?\n[삭제한 보고서]에서 되돌릴 수 있습니다.`)){
+            deleteReport(report.id);
+          }
+        };
+      }
 
       card.onmouseenter = () => { card.style.transform='translateY(-1px)'; };
       card.onmouseleave = () => { card.style.transform=''; };
 
       card.onclick = () => {
+        if(report.deleted){
+          // 삭제된 것은 열지 않는다 — 복원하거나 완전삭제만 한다
+          if(confirm(`"${siteName}" — 복원하려면 [복원]을 누르세요.\n\n지금 완전히 삭제할까요?`))
+            purgeReport(report.id, siteName);
+          return;
+        }
         // Load and view this report
         $app.innerHTML = `<div style="min-height:100vh;background:${T.bg};display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px"><div style="width:32px;height:32px;border:3px solid ${T.border3};border-top-color:${T.accent};border-radius:50%;animation:spin 1s linear infinite"></div><div style="color:${T.text3};font-size:14px">불러오는 중...</div></div>`;
         loadReportForEdit(report.id);
@@ -1108,28 +1134,60 @@ function renderHome(){
 }
 
 // Load report for viewing from home
+// ⚠**소프트 삭제**(감사 2026-07-29 #142). 예전엔 확인창 한 번 뒤 즉시 Firestore
+//   에서 지웠다 — 되돌리기도 휴지통도 없어서, 작은 삭제 버튼 오탭 한 번에
+//   **다시 갈 수 없는 실측 자료**가 복구 불가로 사라졌다.
+//   이제 표시만 하고 목록에서 숨긴다. [삭제한 보고서]에서 복원할 수 있고,
+//   사진(Cloudinary)까지 지우는 완전삭제는 거기서 따로 확인받는다.
 async function deleteReport(id){
   try {
-    // Delete Firestore document (규칙상 delete=staff → 직원 서명 먼저)
+    await staffSignIn();
+    await db.collection('reports').doc(id).update({
+      deleted: true,
+      deletedAt: new Date().toISOString()
+    });
+    const r = (reportsList || []).find(x => x.id === id);
+    if(r){ r.deleted = true; r.deletedAt = new Date().toISOString(); }
+    render();
+  } catch(err){
+    console.error('Delete error:', err);
+    alert('삭제 실패: '+err.message);
+  }
+}
+
+// 복원 — 소프트 삭제를 되돌린다.
+async function restoreReport(id){
+  try {
+    await staffSignIn();
+    await db.collection('reports').doc(id).update({ deleted: false, deletedAt: null });
+    const r = (reportsList || []).find(x => x.id === id);
+    if(r){ r.deleted = false; }
+    render();
+  } catch(err){
+    console.error('Restore error:', err);
+    alert('복원 실패: '+err.message);
+  }
+}
+
+// 완전삭제 — 사진까지 지운다. 여기서만 되돌릴 수 없다.
+async function purgeReport(id, siteName){
+  if(!confirm(`"${siteName}" 보고서를 완전히 삭제할까요?\n사진까지 지워지며 되돌릴 수 없습니다.`)) return;
+  try {
     await staffSignIn();
     await db.collection('reports').doc(id).delete();
-
     // Cloudinary 이미지 자동정리 (백엔드 함수가 reports/{id}/* 삭제).
-    // 서명 필요 작업이라 서버에서 처리. 실패해도 보고서 삭제는 유지(best-effort).
-    // 엔드포인트가 직원 게이트(Bearer id_token → /api/staff/me 승인 대조)라 헤더 필수.
+    // 서명 필요 작업이라 서버에서 처리. 실패해도 삭제는 유지(best-effort).
     staffIdToken().then(idt => fetch('/api/cloudinary-delete', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+idt},
       body: JSON.stringify({id})
     })).then(r=>{ if(!r.ok) console.warn('Cloudinary 정리 실패:', r.status); })
       .catch(e=>console.warn('Cloudinary 정리 호출 실패:', e));
-
-    // Refresh list
     reportsList = reportsList ? reportsList.filter(r=>r.id!==id) : null;
     render();
   } catch(err){
-    console.error('Delete error:', err);
-    alert('삭제 실패: '+err.message);
+    console.error('Purge error:', err);
+    alert('완전삭제 실패: '+err.message);
   }
 }
 
@@ -2949,21 +3007,49 @@ try {
   }
 } catch(e){}
 
+// ⚠자동저장 대상 화면(감사 2026-07-29 #148) — 예전엔 'wizard' 뿐이라
+//   보고서 미리보기(report)에서 새로고침하면 **작성분이 그대로 소실**됐다.
+//   편집을 마치고 미리보기로 넘어간 상태가 오히려 잃을 게 가장 많은 시점이다.
+function shouldAutoSave(){
+  return isUnlocked && (currentView === 'wizard' || currentView === 'report');
+}
+
 // Auto-save every 3 seconds when editing
 setInterval(function(){
-  if(currentView==='wizard' && isUnlocked) autoSave();
+  if(shouldAutoSave()) autoSave();
 }, 3000);
 
 // CRITICAL: Save immediately when phone call / app switch / page hide
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState === 'hidden' && currentView==='wizard' && isUnlocked) autoSave();
+  if(document.visibilityState === 'hidden' && shouldAutoSave()) autoSave();
 });
 window.addEventListener('pagehide', function(){
-  if(currentView==='wizard' && isUnlocked) autoSave();
+  if(shouldAutoSave()) autoSave();
 });
-window.addEventListener('beforeunload', function(){
-  if(currentView==='wizard' && isUnlocked) autoSave();
+window.addEventListener('beforeunload', function(e){
+  if(shouldAutoSave()) autoSave();
+  // ⚠브라우저 이탈 경고는 **returnValue 를 채워야** 뜬다(감사 #148).
+  //   예전엔 autoSave() 만 부르고 끝나 경고가 한 번도 안 떴다 — 저장 전
+  //   새로고침이 그대로 소실이었다. 아직 저장(공유) 전인 작성분이 있을 때만
+  //   막는다: 이미 저장된 보고서를 볼 때까지 붙잡으면 성가시기만 하다.
+  if(shouldAutoSave() && hasUnsavedWork()){
+    e.preventDefault();
+    e.returnValue = '';      // 표준 — 문구는 브라우저가 정한다
+    return '';
+  }
 });
+
+// 저장(공유) 전 작성분이 있는가 — 이탈 경고의 조건.
+function hasUnsavedWork(){
+  try {
+    if(saving) return true;                 // 저장 진행 중이면 무조건 붙잡는다
+    if(!data) return false;
+    // 현장명이나 면(측정) 하나라도 채웠으면 잃을 것이 있다
+    var hasSite = !!(data.siteName || data.site || '').toString().trim();
+    var faces = (data.faces || data.rooms || data.items || []);
+    return hasSite || (Array.isArray(faces) && faces.length > 0);
+  } catch(e){ return false; }
+}
 
 // Set initial state — /?id=... 로 진입해도 주소창은 정규 공유주소 /report/... 로 정규화 (주소창 복사 실수 방지)
 const initialQid = new URLSearchParams(location.search).get('id');
