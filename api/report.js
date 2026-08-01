@@ -22,7 +22,7 @@ module.exports = async function handler(req, res) {
   try {
     const projectId = 'site-report-63959';
     const apiKey = 'AIzaSyAv2Ls20EtMC6km1-DCG1tzWeI8DYRvNvY';
-    const fsUrl = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)/documents/reports/' + id + '?key=' + apiKey + '&mask.fieldPaths=info';
+    const fsUrl = 'https://firestore.googleapis.com/v1/projects/' + projectId + '/databases/(default)/documents/reports/' + id + '?key=' + apiKey + '&mask.fieldPaths=info&mask.fieldPaths=deleted';
 
     const resp = await fetch(fsUrl, {
       method: 'GET',
@@ -31,8 +31,11 @@ module.exports = async function handler(req, res) {
 
     if (resp.ok) {
       const doc = await resp.json();
+      // 소프트 삭제면 OG 도 현장명을 내리지 않는다(전수검증 V5 ★2) —
+      // 지운 보고서의 카톡 미리보기에 현장명이 계속 뜨면 안 된다.
+      const isDeleted = !!(doc.fields && doc.fields.deleted && doc.fields.deleted.booleanValue);
       // Firestore REST API returns nested structure
-      if (doc.fields && doc.fields.info && doc.fields.info.mapValue && doc.fields.info.mapValue.fields) {
+      if (!isDeleted && doc.fields && doc.fields.info && doc.fields.info.mapValue && doc.fields.info.mapValue.fields) {
         const infoFields = doc.fields.info.mapValue.fields;
         if (infoFields.siteName && infoFields.siteName.stringValue) {
           siteName = infoFields.siteName.stringValue;

@@ -523,6 +523,7 @@ async function saveReport(){
       await docRef.update({
         info: data.info,
         status: 'uploading',
+        deleted: false,   // 삭제된 초안을 이어 저장 = 복원(V5 ★11 — 유령 상태 방지)
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     } else {
@@ -684,6 +685,15 @@ function renderGuestLoadError(){
 async function loadReport(id){
   try {
     const doc = await db.collection('reports').doc(id).get();
+
+    // ⚠소프트 삭제(#142) 차단(전수검증 V5 ★2) — 하드 삭제 시절엔 !exists 로
+    //   막혔지만 이제 문서가 남는다. 직원은 '지웠다'고 믿는데 손님 카톡 링크가
+    //   계속 전문(사진·주소·실측값)을 열었다.
+    if(doc.exists && (doc.data()||{}).deleted){
+      if(typeof GUEST_ENTRY!=='undefined' && GUEST_ENTRY){ showGuestLoadError('notfound'); return; }
+      alert('삭제된 보고서입니다 — [삭제한 보고서]에서 복원할 수 있습니다.');
+      location.replace('/'); return;
+    }
     if(!doc.exists){
       // 손님(공유 링크) — 로그인 게이트로 튕기지 말고 안내 화면을 보여준다.
       if(GUEST_ENTRY){ showGuestLoadError('notfound'); return; }
@@ -1050,6 +1060,15 @@ function renderHome(){
     inner.appendChild(listHeader);
     fetchReports();
   } else if(reportsList.filter(r=>!r.deleted).length===0 && !showDeleted){
+    // ⚠빈 상태에도 [삭제한 보고서] 토글은 보여야 한다(전수검증 V5 ★3) —
+    //   마지막 1건을 지우면 복원 통로가 화면에서 증발했다.
+    var delCount0 = reportsList.filter(r=>r.deleted).length;
+    if(delCount0){
+      var tb0 = h('button',{style:{background:'none',border:'none',color:T.text3,fontSize:'13px',cursor:'pointer',padding:'4px 8px'}});
+      tb0.textContent = '삭제한 보고서 ' + delCount0;
+      tb0.onclick = () => { showDeleted = true; render(); };
+      listHeader.appendChild(tb0);
+    }
     inner.appendChild(listHeader);
     inner.appendChild(h('div',{style:{textAlign:'center',padding:'40px 0',color:T.text4,fontSize:'14px'}},'아직 저장된 보고서가 없습니다'));
   } else {
@@ -1200,6 +1219,11 @@ async function purgeReport(id, siteName){
 async function loadReportForEdit(id){
   try {
     const doc = await db.collection('reports').doc(id).get();
+
+    if(doc.exists && (doc.data()||{}).deleted){
+      alert('삭제된 보고서입니다 — [삭제한 보고서]에서 복원 후 여세요.');
+      showReport=false; viewMode=false; render(); return;
+    }
     // 방어: 손님 경로에서는 currentView='home' 으로 되돌리면 작성 홈이 노출된다(GUEST_ENTRY 규약).
     if(!doc.exists){
       if(GUEST_ENTRY){ showGuestLoadError('notfound'); return; }
@@ -1850,6 +1874,15 @@ function renderStepSketch(wrap){
   });
   wrap.appendChild(modeRow);
 
+  // ⚠도면 이미지 무효화(#136). **함수 선언문**이어야 한다(전수검증 V5 ★1):
+  //   예전 `var f = function(){}` 는 photo 분기의 조기 return 보다 뒤라, 그
+  //   분기에서 배선된 클로저(모드 토글·앨범 업로드)가 **대입 전 바인딩**을 잡아
+  //   사진을 골라도 throw 로 render() 전에 죽었다 — 사진 마킹 모드가 배포
+  //   상태로 통째로 죽어 있었다. 선언문은 호이스팅되어 어느 클로저든 안전하다.
+  function invalidateSketchImage(){
+    if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
+  }
+
   if(d2.mode==='photo' && !d2.bgPhoto){
     const uploadBtn = h('button',{style:{width:'100%',padding:'40px 0',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'14px',cursor:'pointer',marginBottom:'16px'}},'🖼 앨범에서 사진 불러오기');
     const fileInput = h('input',{type:'file',accept:'image/*',style:{display:'none'}});
@@ -1859,14 +1892,6 @@ function renderStepSketch(wrap){
     wrap.appendChild(fileInput);
     return;
   }
-
-  // ⚠도면 이미지 무효화(감사 2026-07-29 #136). 저장된 보고서를 다시 열면
-  //   d2.drawing 이 https URL 이라, 그대로 두면 drawCanvas(true) 의 재캡처
-  //   조건이 **둘 다 거짓**이 되어 바뀐 도면이 저장되지 않는다.
-  //   도면 내용을 바꾸는 모든 동작이 이걸 부른다.
-  var invalidateSketchImage = function(){
-    if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
-  };
 
   if(d2.mode==='draw' || d2.bgPhoto){
     const canvasWrap = h('div',{style:{position:'relative',marginBottom:'12px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${T.border2}`,touchAction:'none'}});
@@ -3083,10 +3108,15 @@ function hasUnsavedWork(){
   try {
     if(saving) return true;                 // 저장 진행 중이면 무조건 붙잡는다
     if(!data) return false;
-    // 현장명이나 면(측정) 하나라도 채웠으면 잃을 것이 있다
-    var hasSite = !!(data.siteName || data.site || '').toString().trim();
-    var faces = (data.faces || data.rooms || data.items || []);
-    return hasSite || (Array.isArray(faces) && faces.length > 0);
+    // ⚠실모델 필드로 판정(전수검증 V5 ★4). 예전엔 data.siteName/faces 처럼
+    //   **모델에 없는 키**를 봐서 항상 false — 경고가 여전히 한 번도 안 떴다.
+    if(((data.info||{}).siteName||'').trim()) return true;
+    if(((data.measure||{}).floorPlan||[]).length) return true;
+    var sk = data.sketch||{};
+    if(sk.bgPhoto || (sk.polygon&&sk.polygon.length) ||
+       (sk.doors&&sk.doors.length) || (sk.pins&&sk.pins.length)) return true;
+    if(((data.photos||{}).exterior||[]).length || ((data.photos||{}).interior||[]).length) return true;
+    return false;
   } catch(e){ return false; }
 }
 

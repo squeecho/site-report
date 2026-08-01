@@ -163,6 +163,11 @@ module.exports = async function handler(req, res) {
     if (!doc.exists) {
       return res.status(404).json({ error: "Report not found", id });
     }
+    // 소프트 삭제(#142)는 외부(견적 연동)에도 '없음'이어야 한다(전수검증 V5 ★2).
+    // 응답 스키마에 deleted 가 없어 소비자가 필터할 수도 없다 — 여기서 404.
+    if ((doc.data() || {}).deleted) {
+      return res.status(404).json({ error: "Report not found", id });
+    }
 
     const result = formatReport(doc.id, doc.data());
     return res.status(200).json(result);
