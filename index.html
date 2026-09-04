@@ -38,6 +38,8 @@ input[type="number"]{-moz-appearance:textfield}
 @keyframes shake{0%,100%{transform:translate(-50%,-50%) rotate(0deg)}25%{transform:translate(-50%,-50%) rotate(-2deg)}75%{transform:translate(-50%,-50%) rotate(2deg)}}
 @keyframes pinShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* 목록에서 탭한 배치 항목을 도면에서 잠깐 강조 */
+@keyframes skPulse{0%{box-shadow:0 0 0 0 rgba(255,90,0,0.85)}70%{box-shadow:0 0 0 14px rgba(255,90,0,0)}100%{box-shadow:0 0 0 0 rgba(255,90,0,0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .fade-in{animation:fadeIn .3s ease both}
 @media print{
@@ -104,7 +106,14 @@ input[type="number"]{-moz-appearance:textfield}
   }
   [data-row-photos]>div img{object-fit:contain!important}
   /* Sketch */
-  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;background:#f0f0f0!important}
+  /* 도면은 지면 폭을 꽉 쓰되 세로로 긴 사진은 한 페이지를 넘기지 않게 — 상자(=이미지+배지)를
+     통째로 줄인다. 높이 상한은 JS 가 이미지 비율로 max-width 를 걸어 지킨다(SKETCH_MAX_H).
+     ⚠ object-fit 이나 width:fit-content 로 이미지만 줄이면 %로 얹은 배지가 어긋나거나
+       (fit-content ↔ max-width:100% 순환) 폭이 0 이 돼 도면이 통째로 사라진다. */
+  [data-sketch-wrap]{border-radius:3pt!important;margin-bottom:8pt!important;background:#f0f0f0!important;
+    margin-left:auto!important;margin-right:auto!important}
+  [data-sketch-legend]{font-size:9.5pt!important;gap:3pt 12pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
+  [data-sketch-legend]>div{font-size:9.5pt!important;break-inside:avoid!important;page-break-inside:avoid!important}
   /* Measurement floor plan */
   [data-measure-photo] [data-photo-row]{flex-direction:column!important}
   [data-measure-photo] [data-photo-cell]{height:auto!important;max-height:520pt!important;flex:none!important;background:transparent!important}
@@ -288,6 +297,61 @@ const PIN_TYPES=[
 const BREAKER_SIZES=[40,50,60,75,100,125,150,175,200,225,250];
 const PIN_FACILITY_MAP={water:"waterMeterPin",supply:"waterSupplyPin",drain:"drainagePin",duct:"ductPin",gas:"gasEntryPin",heater:"gasHeaterPin"};
 
+// ==================== 배치도 좌표계 ====================
+// sketch.v === 2  : pins·doors·facility 핀 좌표가 **사진 기준 %** (여백 없음).
+// v 없음(레거시) : **캔버스 상자 기준 %** — 예전 편집기는 캔버스 높이를 먼저 고정하고
+//   사진을 그 상자에 contain 으로 넣어 좌우(또는 상하)에 빈 여백을 남겼고, 지면에 쓰는
+//   PNG 도 그 여백째 구웠다(도면이 지면에서 1/3 크기로 실리던 원인).
+// 옛 캔버스 비율은 구운 PNG(drawing)의 자연크기, 사진 비율은 bgPhoto 자연크기로 알 수 있어
+// 레터박스 사각형을 정확히 복원할 수 있다 → 좌표를 사진 기준으로 옮긴다.
+function fitRectPct(Ac, Ap){                        // Ac=캔버스 가로/세로, Ap=사진 가로/세로
+  if(!(Ac>0) || !(Ap>0)) return {x:0,y:0,w:100,h:100};
+  if(Ap>=Ac){ var hh=100*Ac/Ap; return {x:0, y:(100-hh)/2, w:100, h:hh}; }   // 폭이 꽉 참
+  var ww=100*Ap/Ac; return {x:(100-ww)/2, y:0, w:ww, h:100};                 // 높이가 꽉 참
+}
+function canvasPctToPhotoPct(pt, rect){
+  if(!pt || !rect || !(rect.w>0) || !(rect.h>0)) return {x:pt?pt.x:0, y:pt?pt.y:0};
+  return {x:(pt.x-rect.x)*100/rect.w, y:(pt.y-rect.y)*100/rect.h};
+}
+// 배치도 표시 이미지 — 사진 마킹(v2)은 **원본 사진**(여백 없음), 직접 스케치는 구운 도면.
+// 레거시(v!==2)는 좌표가 '캔버스 상자' 기준이라 편집·설비 오버레이에서는 구운 도면을 그대로 쓴다
+// (지면은 읽기 전용이라 좌표를 옮겨 원본 사진으로 크게 보여준다).
+function sketchDisplaySrc(sk){
+  if(!sk) return '';
+  if(sk.v===2 && sk.mode==='photo' && sk.bgPhoto) return sk.bgPhoto;
+  return sk.drawing || '';
+}
+// 배치도 라벨 자리 = 아래(0)·위(1)·아래 한 칸 더(2)·위 한 칸 더(3).
+// 이미 놓인 라벨과 가까우면 다음 칸으로 밀어 겹침을 없앤다(도면 % 기준 근사).
+// 아래 끝(y>88)은 라벨이 도면 밖으로 잘리므로 위쪽 칸부터 시도한다.
+function sketchLabelLevels(items){
+  var out=[], placed=[], STEP=5.5, NEARX=14, NEARY=4.6;
+  (items||[]).forEach(function(m){
+    var order = (m.y>88) ? [1,3,0,2] : (m.y<8 ? [0,2,1,3] : [0,1,2,3]), lv=order[0], ly=0;
+    for(var t=0;t<order.length;t++){
+      var c=order[t];
+      ly = m.y + (c%2===0?1:-1)*(1+Math.floor(c/2))*STEP;
+      var free=true;
+      for(var i=0;i<placed.length;i++){
+        if(Math.abs(placed[i].x-m.x)<NEARX && Math.abs(placed[i].ly-ly)<NEARY){ free=false; break; }
+      }
+      lv=c; if(free) break;
+    }
+    placed.push({x:m.x, ly:ly}); out.push(lv);
+  });
+  return out;
+}
+// 이미지 자연크기 비율 읽기(픽셀은 안 읽으므로 CORS 무관). 실패하면 null → 호출부는 종전 동작 유지.
+function imgAspect(src){
+  return new Promise(function(res){
+    if(!src) return res(null);
+    var im=new Image();
+    im.onload=function(){ res(im.naturalWidth>0&&im.naturalHeight>0 ? im.naturalWidth/im.naturalHeight : null); };
+    im.onerror=function(){ res(null); };
+    im.src=src;
+  });
+}
+
 // ==================== State ====================
 let step = 0;
 let showReport = false;
@@ -307,7 +371,7 @@ function makeInitialData(){
     info:{date:"",siteName:"",address:"",manager:""},
     photos:{exterior:[],interior:[],interiorTags:[],video:""},
     fire:{compliance:"",sprinkler:"",notesTags:[],notesCustom:""},
-    sketch:{mode:"draw",bgPhoto:null,drawing:null,polygon:null,doors:[],pins:[]},
+    sketch:{v:2,mode:"draw",bgPhoto:null,drawing:null,polygon:null,doors:[],pins:[]},
     facility:{waterMeter:"",waterMeterPhotos:[],waterMeterPin:null,waterSupply:"",waterSupplyPhotos:[],waterSupplyPin:null,drainage:"",drainagePhotos:[],drainagePin:null,ductTags:[],ductCustom:"",ductPhotos:[],ductPin:null,gasEntry:"",gasEntryPhotos:[],gasEntryPin:null,gasHeater:"",gasHeaterPhotos:[],gasHeaterPin:null,notes:"",notesPhotos:[]},
     electric:{panelEntries:[{phase:"삼상",amps:""}],panelLocation:"",panelPhotos:[],hvac:"",hvacPhotos:[],notes:"",notesPhotos:[]},
     construction:{parking:"",parkingDetail:"",parkingPhotos:[],nearbyParkingAddr:"",nearbyParkingRate:"",materialRoute:"",materialRoutePhotos:[],stairElevator:"",stairElevatorPhotos:[],buildingProtection:"",buildingProtectionPhotos:[],notes:"",notesPhotos:[]},
@@ -321,6 +385,8 @@ let sketchTool = "wall";
 let currentInteriorZone = "";
 let sketchSelectedPin = "water";
 let sketchActionHistory = [];
+let sketchHighlightId = null;   // 목록에서 탭한 항목 — 도면에서 잠깐 강조
+let sketchMigrating = false;    // 레거시 좌표 이관 진행 중(중복 이관 방지)
 
 // ==================== Image Compression ====================
 // WebP 인코딩 지원 감지 (구형 Safari 등 미지원 시 JPEG로 폴백 → PNG 폴백 방지)
@@ -1492,7 +1558,7 @@ function makeInlinePhotos(photos, onAdd, onRemove){
 }
 
 function makeSketchMarkerBtn(pinKey, emoji, label){
-  if(!data.sketch.drawing) return document.createTextNode('');
+  if(!sketchDisplaySrc(data.sketch)) return document.createTextNode('');
   const pin = data.facility[pinKey];
   const btn = h('button',{style:{height:'56px',minWidth:'56px',borderRadius:'8px',border:pin?`2px solid ${T.accent}`:`1.5px dashed ${T.photoBtnBorder}`,background:pin?T.bg3:'transparent',color:T.text2,fontSize:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px',padding:'4px 8px'}});
   btn.innerHTML = `<span style="font-size:16px">📍</span><span style="font-size:9px;white-space:nowrap">${pin?'표시됨':'스케치'}</span>`;
@@ -1508,7 +1574,7 @@ function openSketchOverlay(pinKey, emoji, label){
   const header = `<div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center"><div style="color:#fff;font-size:15px;font-weight:600">${emoji} ${label} 위치 표시</div><button id="skOvClose" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">✕</button></div>
     <div style="padding:0 16px;color:#aaa;font-size:13px;margin-bottom:12px">스케치를 탭하여 위치를 표시하세요</div>`;
 
-  overlay.innerHTML = header + `<div style="flex:1;padding:0 16px;display:flex;align-items:center;justify-content:center"><div id="skOvImg" style="position:relative;width:100%;max-width:500px;border-radius:10px;overflow:hidden"><img src="${escAttr(data.sketch.drawing)}" style="width:100%;display:block"></div></div>`;
+  overlay.innerHTML = header + `<div style="flex:1;padding:0 16px;display:flex;align-items:center;justify-content:center"><div id="skOvImg" style="position:relative;width:100%;max-width:500px;border-radius:10px;overflow:hidden"><img src="${escAttr(sketchDisplaySrc(data.sketch))}" style="width:100%;display:block"></div></div>`;
 
   const renderPin = () => {
     const imgDiv = overlay.querySelector('#skOvImg');
@@ -1883,6 +1949,30 @@ function renderStepSketch(wrap){
     if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
   }
 
+  // 옛 문서(sketch.v 없음)의 좌표를 **사진 기준**으로 1회 이관한다.
+  // 예전 캔버스는 사진을 상자 안에 contain 으로 넣어 여백을 남겼고 좌표도 그 상자 기준이었다.
+  // 옛 캔버스 비율 = 구운 도면(drawing)의 자연크기, 사진 비율 = bgPhoto 자연크기 → 레터박스 복원 가능.
+  // 자연크기를 못 읽으면 아무것도 건드리지 않는다(종전 동작 유지).
+  function migrateSketchCoords(Ap){
+    if(d2.v===2 || sketchMigrating) return;
+    if(!d2.drawing){ d2.v=2; return; }              // 옮길 근거가 없다 — 새 규약으로 시작
+    var src=d2.drawing; sketchMigrating=true;
+    imgAspect(src).then(function(Ac){
+      sketchMigrating=false;
+      if(d2.v===2 || !Ac) return;   // 도면이 그 사이 다시 구워져도 좌표계는 그대로 — 캡처한 src 비율로 옮긴다
+      var rect=fitRectPct(Ac,Ap);
+      d2.v=2;
+      if(rect.w>99.5 && rect.h>99.5) return;        // 여백이 없던 문서 — 좌표 그대로
+      var mv=function(o){ if(!o) return; var q=canvasPctToPhotoPct(o,rect); o.x=q.x; o.y=q.y; };
+      (d2.pins||[]).forEach(mv);
+      (d2.doors||[]).forEach(mv);
+      Object.keys(PIN_FACILITY_MAP).forEach(function(k){ mv(data.facility[PIN_FACILITY_MAP[k]]); });
+      sketchActionHistory.length=0;                 // 좌표계가 바뀌어 옛 되돌리기는 무의미
+      invalidateSketchImage();                      // 여백 없는 도면으로 다시 굽는다
+      render();
+    });
+  }
+
   if(d2.mode==='photo' && !d2.bgPhoto){
     const uploadBtn = h('button',{style:{width:'100%',padding:'40px 0',borderRadius:'10px',border:`2px dashed ${T.border3}`,background:'transparent',color:T.text3,fontSize:'14px',cursor:'pointer',marginBottom:'16px'}},'🖼 앨범에서 사진 불러오기');
     const fileInput = h('input',{type:'file',accept:'image/*',style:{display:'none'}});
@@ -1901,11 +1991,48 @@ function renderStepSketch(wrap){
     wrap.appendChild(canvasWrap);
 
     requestAnimationFrame(()=>{
-      const w = canvasWrap.getBoundingClientRect().width;
-      // 캔버스 높이 상한: 폭이 넓은 화면(갤럭시폴드 펼친 화면 등)에서 캔버스가 너무 커져
-      // 도구 버튼이 화면 밖으로 밀리는 것을 방지. 화면 높이의 약 46%로 제한해
-      // 도구 버튼이 스크롤 없이 캔버스 바로 아래에 보이도록 함. (폰은 w*0.75가 더 작아 그대로 유지)
-      const cH = Math.round(Math.min(w*0.75, window.innerHeight*0.46));
+      const wrapW = canvasWrap.getBoundingClientRect().width;
+      var bgImg = null, bgRetried = false;
+      if(d2.mode==='photo' && d2.bgPhoto){
+        bgImg=new Image();
+        // 저장된 사진은 Cloudinary URL — crossOrigin 없이 그리면 캔버스가 오염돼 다시 굽기(toDataURL)가 막힌다.
+        // (Cloudinary 는 ACAO:* 를 보낸다. 막히면 crossOrigin 없이 한 번 더 — 그림은 보이고 굽기는 try/catch 로 방어)
+        if(!/^data:/.test(d2.bgPhoto)) bgImg.crossOrigin='anonymous';
+        bgImg.onload=function(){ start(); };
+        bgImg.onerror=function(){
+          if(!bgRetried && bgImg.crossOrigin){
+            bgRetried=true;
+            var im2=new Image();
+            im2.onload=function(){ bgImg=im2; start(); };
+            im2.onerror=function(){ start(); };
+            im2.src=d2.bgPhoto;
+            return;
+          }
+          start();
+        };
+        bgImg.src=d2.bgPhoto;
+      }
+      // 사진 마킹은 캔버스를 **사진 비율에 맞춘다** — 자연크기를 알아야 하므로 로드 후 시작.
+      // (선언문이어야 한다 — 여기서 먼저 호출한다. 캐시된 사진은 onload 가 늦게 와도 중복 실행되지 않게 가드)
+      var sketchStarted=false;          // ⚠ start() 호출보다 위에 있어야 한다(var 는 값 대입이 늦으면 플래그가 되돌아간다)
+      if(!bgImg || bgImg.complete) start();
+
+      function start(){
+      if(sketchStarted) return; sketchStarted=true;
+      // 사진이 있으면 사진 비율로 재단 → 빈 여백이 없어 작업면적이 커지고, 좌표 % = 사진 % 가 된다.
+      // 화면보다 세로로 긴 사진은 높이를 상한에 맞추고 **폭을 줄여** 비율을 지킨다(가운데 정렬).
+      // 사진이 없으면(직접 스케치) 종전 규칙 유지 — 도구 버튼이 밀리지 않게 화면 높이의 46% 상한.
+      var w = Math.round(wrapW);
+      var Ap = (bgImg && bgImg.naturalWidth>0 && bgImg.naturalHeight>0) ? bgImg.naturalWidth/bgImg.naturalHeight : 0;
+      var cH;
+      if(Ap>0){
+        var maxH = Math.max(Math.round(window.innerHeight*0.62), Math.round(wrapW*0.75));
+        cH = Math.round(wrapW/Ap);
+        if(cH>maxH){ cH=maxH; w=Math.round(maxH*Ap); }
+        canvasWrap.style.width=w+'px'; canvasWrap.style.marginLeft='auto'; canvasWrap.style.marginRight='auto';
+      } else {
+        cH = Math.round(Math.min(w*0.75, window.innerHeight*0.46));
+      }
       const dpr = 2;
       canvas.width = w*dpr; canvas.height = cH*dpr;
       canvas.style.width = w+'px'; canvas.style.height = cH+'px';
@@ -1915,8 +2042,7 @@ function renderStepSketch(wrap){
       var toPx = function(p){ return {x:p.x*w/100, y:p.y*cH/100}; };
       var toPct = function(px,py){ return {x:px*100/w, y:py*100/cH}; };
 
-      var bgImg = null;
-      if(d2.mode==='photo' && d2.bgPhoto){ bgImg=new Image(); bgImg.src=d2.bgPhoto; }
+      if(Ap>0 && d2.v!==2) migrateSketchCoords(Ap);
 
       var drawCanvas = function(save){
         ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -1943,7 +2069,10 @@ function renderStepSketch(wrap){
             ctx.closePath(); ctx.stroke();
           }
         }
-        if(save && (!d2.drawing || d2.drawing.startsWith('data:'))) d2.drawing = canvas.toDataURL();
+        if(save && (!d2.drawing || d2.drawing.startsWith('data:'))){
+          try { d2.drawing = canvas.toDataURL(); }
+          catch(e){ /* 오염된 캔버스 — 도면 굽기만 건너뛴다(편집은 계속) */ }
+        }
         // Vertex handles (draw mode only)
         if(d2.mode!=='photo'){
           var poly = d2.polygon;
@@ -2028,11 +2157,15 @@ function renderStepSketch(wrap){
       var makeGhost=function(sess){
         var g=document.createElement('div');
         g.style.cssText='position:absolute;transform:translate(-50%,-50%);pointer-events:none;z-index:50;opacity:0.9;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35))';
-        if(sess.kind==='door'){ g.style.fontSize='22px'; g.textContent='🚪'; }
-        else {
+        // 끌고 다니는 미리보기에도 이름을 붙인다 — 무엇을 놓는 중인지 손가락 아래에서 바로 보이게.
+        var gEmoji='🚪', gLabel='출입구';
+        if(sess.kind!=='door'){
           var pt=PIN_TYPES.find(function(p){return p.id===(sess.ref?sess.ref.type:sess.pinType);});
-          g.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,0.2);border:1px solid #ddd">'+(pt?pt.emoji:'')+'</div>';
+          gEmoji=(pt?pt.emoji:''); gLabel=(pt?pt.label:'');
         }
+        g.style.display='flex'; g.style.flexDirection='column'; g.style.alignItems='center';
+        g.innerHTML='<div style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.96);display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 4px rgba(0,0,0,0.25);border:1px solid #bbb">'+gEmoji+'</div>'
+          + '<div style="font-size:11px;color:#222;background:rgba(255,255,255,0.92);padding:1px 6px;border-radius:5px;margin-top:3px;white-space:nowrap;border:1px solid #bbb;font-weight:600">'+gLabel+'</div>';
         return g;
       };
       var moveGhost=function(g,pos){ g.style.left=pos.x+'px'; g.style.top=pos.y+'px'; };
@@ -2175,34 +2308,58 @@ function renderStepSketch(wrap){
       canvas.addEventListener('mouseup',onUp);
       if(sketchTool==='pin'||sketchTool==='door') canvas.style.cursor='crosshair';
 
+      // ── 배치된 항목 오버레이 — 지면과 같은 '번호 + 아이콘 + 이름' 으로 보여
+      //    편집 중에도 무엇을 어디에 찍었는지 바로 읽힌다.
+      // 라벨 자리는 지면과 같은 규칙(sketchLabelLevels)으로 — 밀집 구간에서도 안 겹치게
+      var lvMap={}; (function(){
+        var all=[].concat((d2.doors||[]).map(function(o){return {mid:'door-'+o.id,x:Number(o.x)||0,y:Number(o.y)||0};}),
+                          (d2.pins ||[]).map(function(o){return {mid:'pin-'+o.id, x:Number(o.x)||0,y:Number(o.y)||0};}));
+        sketchLabelLevels(all).forEach(function(lv,i){ lvMap[all[i].mid]=lv; });
+      })();
+      var mkOverlay=function(o){   // {mid, x, y, emoji, label, no}
+        var el=document.createElement('div');
+        el.dataset.mid=o.mid;
+        var erasing=(sketchTool==='eraser');
+        var lv=lvMap[o.mid]||0, flip=(lv%2!==0), extra=Math.floor(lv/2);
+        el.style.cssText='position:absolute;left:'+o.x+'%;top:'+o.y+'%;transform:translate(-50%,-50%);display:flex;flex-direction:'+(flip?'column-reverse':'column')+';align-items:center;pointer-events:'+(erasing?'auto':'none')+';cursor:'+(erasing?'pointer':'default')+';opacity:'+(erasing?'0.7':'1')+';animation:'+(erasing?'shake .5s infinite':'none');
+        var hot=(sketchHighlightId===o.mid);
+        el.innerHTML='<div style="position:relative;width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.96);display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 1px 4px rgba(0,0,0,0.28);border:'+(hot?'2px solid #ff5a00':'1px solid #bbb')+';'+(hot?'animation:skPulse 1.1s ease-out 2;':'')+'">'
+          + (o.emoji||'')
+          + (o.no?'<span style="position:absolute;top:-7px;right:-7px;min-width:17px;height:17px;padding:0 3px;border-radius:9px;background:#111;color:#fff;font-size:11px;font-weight:700;line-height:17px;text-align:center;box-shadow:0 0 0 2px #fff">'+o.no+'</span>':'')
+          + '</div>'
+          + '<div style="font-size:11px;color:#222;background:rgba(255,255,255,0.92);padding:1px 6px;border-radius:5px;margin-'+(flip?'bottom':'top')+':'+(extra?20:3)+'px;white-space:nowrap;border:1px solid #bbb;font-weight:600">'+(o.label||'')+'</div>';
+        return el;
+      };
       // Door overlays
       (d2.doors||[]).forEach(function(dr){
-        var el=document.createElement('div');
-        el.style.cssText='position:absolute;left:'+dr.x+'%;top:'+dr.y+'%;transform:translate(-50%,-50%);font-size:22px;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4));cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
-        el.textContent='🚪';
-        el.dataset.mid='door-'+dr.id;
+        var el=mkOverlay({mid:'door-'+dr.id,x:dr.x,y:dr.y,emoji:'🚪',label:'출입구',no:0});
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;d2.doors=d2.doors.filter(function(d3){return d3.id!==dr.id;});sketchActionHistory.push({type:'eraseDoor',data:dr});render();};
         canvasWrap.appendChild(el);
       });
       // Pin overlays
-      (d2.pins||[]).forEach(function(pin){
+      (d2.pins||[]).forEach(function(pin,pi){
         var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
-        var el=document.createElement('div');
-        el.dataset.mid='pin-'+pin.id;
-        el.style.cssText='position:absolute;left:'+pin.x+'%;top:'+pin.y+'%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:'+(sketchTool==='eraser'?'auto':'none')+';cursor:'+(sketchTool==='eraser'?'pointer':'default')+';opacity:'+(sketchTool==='eraser'?'0.7':'1')+';animation:'+(sketchTool==='eraser'?'shake .5s infinite':'none');
-        el.innerHTML='<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">'+(pt?pt.emoji:'')+'</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 4px;border-radius:4px;margin-top:2px;white-space:nowrap;border:1px solid #ccc;font-weight:600">'+(pt?pt.label:'')+'</div>';
+        var el=mkOverlay({mid:'pin-'+pin.id,x:pin.x,y:pin.y,emoji:(pt?pt.emoji:''),label:(pt?pt.label:''),no:pi+1});
         if(sketchTool==='eraser') el.onclick=function(ev){ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;var fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(function(p){return p.id!==pin.id;});sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type});render();};
         canvasWrap.appendChild(el);
       });
+      }   // end start()
     });
 
     // Toolbar
     // In photo mode, wall editing is not available — auto-switch tool
     if(d2.mode==='photo' && sketchTool==='wall') sketchTool='door';
-    const toolbar = h('div',{style:{display:'flex',gap:'6px',marginBottom:'12px',flexWrap:'wrap'}});
+    // 캔버스를 사진 비율로 키운 대신 도구 묶음을 화면 아래에 붙여둔다 —
+    // 스크롤해도 도구가 늘 손 닿는 곳에 있게(예전 '높이 46% 상한'이 지키려던 것).
+    // ⚠ sticky-bottom 은 **DOM 상 뒤쪽**에 있어야 스크롤 내내 붙어 있다 → 도크는 wrap 의 맨 끝에 붙인다.
+    const dock = h('div',{style:{position:'sticky',bottom:'calc(72px + max(24px, env(safe-area-inset-bottom)))',
+      zIndex:'19',background:T.bg,paddingTop:'8px',paddingBottom:'8px',marginTop:'8px',
+      borderTop:`1px solid ${T.border2}`}});
+    const toolbar = h('div',{style:{display:'flex',gap:'6px',marginBottom:'8px',flexWrap:'nowrap',
+      overflowX:'auto',paddingBottom:'2px'}});
     const mkToolBtn = (id,lb) => {
       const active = sketchTool===id;
-      const btn = h('button',{style:{padding:'8px 14px',borderRadius:'8px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:'transparent',color:active?T.chipActiveText:T.text2,fontSize:'12px',cursor:'pointer',fontWeight:active?'600':'400'}},lb);
+      const btn = h('button',{style:{flex:'none',whiteSpace:'nowrap',padding:'8px 14px',borderRadius:'8px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:'transparent',color:active?T.chipActiveText:T.text2,fontSize:'12px',cursor:'pointer',fontWeight:active?'600':'400'}},lb);
       btn.onclick=()=>{sketchTool=id;render();};
       return btn;
     };
@@ -2211,7 +2368,7 @@ function renderStepSketch(wrap){
     toolbar.appendChild(mkToolBtn('pin','📍 설비'));
     toolbar.appendChild(mkToolBtn('eraser','🧹 지우기'));
 
-    const undoBtn = h('button',{style:{padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text2,fontSize:'12px',cursor:'pointer'}},'↩ 되돌리기');
+    const undoBtn = h('button',{style:{flex:'none',whiteSpace:'nowrap',padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text2,fontSize:'12px',cursor:'pointer'}},'↩ 되돌리기');
     undoBtn.onclick=()=>{
       if(!sketchActionHistory.length) return;
       if(d2.drawing && !d2.drawing.startsWith('data:')) d2.drawing = null;
@@ -2228,43 +2385,68 @@ function renderStepSketch(wrap){
     toolbar.appendChild(undoBtn);
 
     if(d2.mode==='photo'&&d2.bgPhoto){
-      const changeBtn = h('button',{style:{padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text5,fontSize:'12px',cursor:'pointer'}},'사진 변경');
-      changeBtn.onclick=()=>{d2.bgPhoto=null;d2.drawing=null;d2.polygon=null;d2.doors=[];render();};
+      const changeBtn = h('button',{style:{flex:'none',whiteSpace:'nowrap',padding:'8px 14px',borderRadius:'8px',border:`1px solid ${T.chipBorder}`,background:'transparent',color:T.text5,fontSize:'12px',cursor:'pointer'}},'사진 변경');
+      changeBtn.onclick=()=>{d2.bgPhoto=null;d2.drawing=null;d2.polygon=null;d2.doors=[];d2.v=2;render();};
       toolbar.appendChild(changeBtn);
     }
-    wrap.appendChild(toolbar);
+    dock.appendChild(toolbar);
 
-    if(sketchTool==='wall') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'꼭지점을 드래그하여 벽체 수정 · + 버튼으로 꼭지점 추가 · 90° 자동 정렬'));
-    if(sketchTool==='door') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'사진을 끌어다 놓아 출입구 배치 · 기존 출입구는 끌어서 이동'));
-    if(sketchTool==='eraser') wrap.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},d2.mode==='photo'?'흔들리는 스티커를 탭하여 삭제':'빨간 원(꼭지점) 또는 흔들리는 스티커를 탭하세요'));
+    if(sketchTool==='wall') dock.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'꼭지점을 드래그하여 벽체 수정 · + 버튼으로 꼭지점 추가 · 90° 자동 정렬'));
+    if(sketchTool==='door') dock.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},'사진을 끌어다 놓아 출입구 배치 · 기존 출입구는 끌어서 이동'));
+    if(sketchTool==='eraser') dock.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'10px'}},d2.mode==='photo'?'흔들리는 스티커를 탭하여 삭제':'빨간 원(꼭지점) 또는 흔들리는 스티커를 탭하세요'));
 
     if(sketchTool==='pin'){
       const pinSel = h('div',{style:{marginBottom:'12px'}});
       pinSel.appendChild(h('div',{style:{fontSize:'12px',color:T.text5,marginBottom:'6px'}},'설비 종류 선택 후 사진에 끌어다 놓기 · 기존 설비는 끌어서 이동'));
-      const pinChips = h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+      const pinChips = h('div',{style:{display:'flex',gap:'6px',flexWrap:'nowrap',overflowX:'auto',paddingBottom:'2px'}});
       PIN_TYPES.forEach(p=>{
         const active = sketchSelectedPin===p.id;
-        const btn = h('button',{style:{padding:'8px 14px',borderRadius:'20px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'13px',cursor:'pointer',fontWeight:active?'600':'400'}},`${p.emoji} ${p.label}`);
+        const btn = h('button',{style:{flex:'none',whiteSpace:'nowrap',padding:'8px 14px',borderRadius:'20px',border:active?`1.5px solid ${T.accent}`:`1px solid ${T.chipBorder}`,background:active?T.chipActive:T.chipInactive,color:active?T.chipActiveText:T.chipInactiveText,fontSize:'13px',cursor:'pointer',fontWeight:active?'600':'400'}},`${p.emoji} ${p.label}`);
         btn.onclick=()=>{sketchSelectedPin=p.id;render();};
         pinChips.appendChild(btn);
       });
       pinSel.appendChild(pinChips);
-      wrap.appendChild(pinSel);
+      dock.appendChild(pinSel);
     }
 
-    if((d2.pins||[]).length>0){
+    // ── 배치한 항목 목록 — 도면에서 작아 누르기 어려운 항목도 여기서 확인·메모·삭제 ──
+    //    행을 탭하면 도면의 해당 항목이 잠깐 강조된다.
+    if((d2.pins||[]).length>0 || (d2.doors||[]).length>0){
       const pinsList = h('div',{style:{marginTop:'8px'}});
-      pinsList.appendChild(h('div',{style:{fontSize:'13px',color:T.text2,marginBottom:'8px',fontWeight:'500'}},'배치된 핀'));
-      (d2.pins||[]).forEach(pin=>{
+      pinsList.appendChild(h('div',{style:{fontSize:'13px',color:T.text2,marginBottom:'8px',fontWeight:'500'}},'배치된 항목 (탭하면 도면에서 반짝입니다)'));
+      const numChip = (txt,bg) => h('span',{style:{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',width:'20px',height:'20px',borderRadius:'50%',background:bg,color:'#fff',fontSize:'11px',fontWeight:'700'}},txt);
+      const flash = (mid) => {
+        sketchHighlightId = mid;
+        render();
+        setTimeout(function(){ if(sketchHighlightId===mid) sketchHighlightId=null; }, 2600);
+      };
+      const rowStyle = {display:'flex',gap:'8px',alignItems:'center',marginBottom:'8px',padding:'8px 10px',borderRadius:'8px',background:T.cardBg,border:`1px solid ${T.cardBorder}`,cursor:'pointer'};
+      const rmStyle = {flex:'none',width:'26px',height:'26px',borderRadius:'6px',border:'none',background:T.border3,color:T.text2,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'};
+
+      (d2.pins||[]).forEach((pin,pi)=>{
         const pt=PIN_TYPES.find(p=>p.id===pin.type);
-        const row = h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'8px',padding:'8px 10px',borderRadius:'8px',background:T.cardBg,border:`1px solid ${T.cardBorder}`}});
-        row.appendChild(h('span',{style:{fontSize:'18px'}},pt?.emoji||''));
-        const inp = h('input',{type:'text',style:{...inputStyle(),flex:'1',fontSize:'13px',padding:'6px 10px',border:'none',background:'transparent'},placeholder:`${pt?.label||''} 메모`});
+        const row = h('div',{style:rowStyle});
+        row.onclick=(ev)=>{ if(ev.target.tagName!=='INPUT' && ev.target.tagName!=='BUTTON') flash('pin-'+pin.id); };
+        row.appendChild(numChip(String(pi+1), T.accent));
+        row.appendChild(h('span',{style:{flex:'none',fontSize:'18px'}},pt?.emoji||''));
+        row.appendChild(h('span',{style:{flex:'none',fontSize:'13px',color:T.text,fontWeight:'600'}},pt?.label||''));
+        const inp = h('input',{type:'text',style:{...inputStyle(),flex:'1',minWidth:'0',fontSize:'13px',padding:'6px 10px',border:'none',background:'transparent'},placeholder:'메모(선택)'});
         inp.value=pin.note||'';
         inp.oninput=e=>{pin.note=e.target.value;};
         row.appendChild(inp);
-        const rmBtn = h('button',{style:{width:'24px',height:'24px',borderRadius:'6px',border:'none',background:T.border3,color:T.text2,fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}},'✕');
-        rmBtn.onclick=()=>{if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);render();};
+        const rmBtn = h('button',{style:rmStyle},'✕');
+        rmBtn.onclick=(ev)=>{ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;const fk=PIN_FACILITY_MAP[pin.type];if(fk)data.facility[fk]=null;d2.pins=d2.pins.filter(p=>p.id!==pin.id);sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type});render();};
+        row.appendChild(rmBtn);
+        pinsList.appendChild(row);
+      });
+
+      (d2.doors||[]).forEach((dr)=>{
+        const row = h('div',{style:rowStyle});
+        row.onclick=(ev)=>{ if(ev.target.tagName!=='BUTTON') flash('door-'+dr.id); };
+        row.appendChild(numChip('🚪', T.border3));
+        row.appendChild(h('span',{style:{flex:'1',fontSize:'13px',color:T.text,fontWeight:'600'}},'출입구'));
+        const rmBtn = h('button',{style:rmStyle},'✕');
+        rmBtn.onclick=(ev)=>{ev.stopPropagation();if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null;d2.doors=d2.doors.filter(o=>o.id!==dr.id);sketchActionHistory.push({type:'eraseDoor',data:dr});render();};
         row.appendChild(rmBtn);
         pinsList.appendChild(row);
       });
@@ -2272,6 +2454,7 @@ function renderStepSketch(wrap){
     }
 
     wrap.appendChild(h('div',{style:{fontSize:'11px',color:T.text4,marginTop:'8px'}},(d2.mode!=='photo'?'꼭지점 '+(d2.polygon||[]).length+'개 · ':'')+'출입구 '+(d2.doors||[]).length+'개 · 설비 '+(d2.pins||[]).length+'개'));
+    wrap.appendChild(dock);
   }
 }
 function renderStepFacility(wrap){
@@ -2805,25 +2988,112 @@ function renderReport(){
     const skSec = h('div',{style:secStyle,'data-print-section':'1'});
     const skTitle = secTitle('','설비 요약 배치도 · 참고용');
     skSec.appendChild(skTitle);
-    if(data.sketch.drawing){
+
+    // 도면 위 항목 = 스케치 핀 → 설비탭 핀 순서로 번호를 매긴다(범례와 같은 번호).
+    const marks = [].concat(
+      (data.sketch.pins||[]).map(function(pin){
+        var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
+        return {x:Number(pin.x)||0, y:Number(pin.y)||0, emoji:(pt?pt.emoji:''), label:(pt?pt.label:''), note:pin.note||''};
+      }),
+      facPins.map(function(fp){ return {x:Number(fp.pin.x)||0, y:Number(fp.pin.y)||0, emoji:fp.emoji, label:fp.label, note:''}; })
+    ).map(function(m,i){ m.no=i+1; return m; });
+
+    if(sketchDisplaySrc(data.sketch)){
+      // 배지·라벨 크기는 도면 폭에 비례(cqw) — 폰 화면과 A4 인쇄에서 같은 비율로 보인다.
+      // 앞줄의 px 값은 cqw 미지원 브라우저용 폴백(CSSOM 이 잘못된 값을 무시해 px 가 남는다).
+      var SK_D='clamp(18px, 5.4cqw, 34px)', SK_R='clamp(9px, 2.7cqw, 17px)';
+      var SK_LBL='clamp(13px, 3.4cqw, 19px)';
+      var mkMark = function(m, lv, withNo){
+        var el = h('div',{style:{position:'absolute',left:m.x+'%',top:m.y+'%',width:'0',height:'0'},'data-sk-mark':'1'});
+        var circle = h('div',{style:{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',
+          width:'26px',height:'26px',borderRadius:'50%',background:'rgba(255,255,255,0.96)',
+          display:'flex',alignItems:'center',justifyContent:'center',fontSize:'13px',
+          boxShadow:'0 1px 4px rgba(0,0,0,0.28)',border:'1px solid #bbb'}}, m.emoji||'');
+        Object.assign(circle.style,{width:SK_D,height:SK_D,fontSize:'clamp(11px, 3.2cqw, 20px)'});
+        if(withNo){
+          var chip = h('div',{style:{position:'absolute',top:'-22%',right:'-22%',minWidth:'13px',height:'13px',padding:'0 2px',
+            borderRadius:'7px',background:'#111',color:'#fff',fontSize:'9px',fontWeight:'700',lineHeight:'13px',
+            textAlign:'center',boxShadow:'0 0 0 1.5px #fff'}}, String(m.no));
+          Object.assign(chip.style,{minWidth:'clamp(13px, 3.4cqw, 20px)',height:'clamp(13px, 3.4cqw, 20px)',
+            lineHeight:'clamp(13px, 3.4cqw, 20px)',borderRadius:'clamp(7px, 1.7cqw, 10px)',fontSize:'clamp(9px, 2.2cqw, 13px)'});
+          circle.appendChild(chip);
+        }
+        el.appendChild(circle);
+        // 라벨은 점 기준 절대배치 — 가까운 항목끼리는 위/아래로 갈라 겹침을 줄이고,
+        // 도면 좌우 끝에서는 잘리지 않게 정렬점을 옮긴다.
+        var shift = m.x<8 ? 8 : (m.x>92 ? 92 : 50);
+        var lab = h('div',{style:{position:'absolute',left:'50%',transform:'translateX(-'+shift+'%)',
+          whiteSpace:'nowrap',fontSize:'9px',color:'#222',background:'rgba(255,255,255,0.9)',
+          padding:'1px 5px',borderRadius:'4px',border:'1px solid #ccc',fontWeight:'600',lineHeight:'1.35'}}, m.label||'');
+        var below=(lv%2===0), extra=Math.floor(lv/2);
+        lab.style[below?'top':'bottom'] = (extra?32:16)+'px';
+        Object.assign(lab.style,{fontSize:'clamp(8px, 2.2cqw, 13px)'});
+        lab.style[below?'top':'bottom'] = 'calc(' + SK_R + ' + 3px' + (extra? ' + '+SK_LBL : '') + ')';
+        el.appendChild(lab);
+        return el;
+      };
+      var doorList = (data.sketch.doors||[]).map(function(dr){ return {x:Number(dr.x)||0, y:Number(dr.y)||0}; });
+      var levels = sketchLabelLevels(doorList.concat(marks));   // 출입구 → 설비 순(그리는 순서와 동일)
+
       const imgWrap = h('div',{style:{position:'relative',borderRadius:'10px',overflow:'hidden',marginBottom:'12px',background:'#f0f0f0'},'data-sketch-wrap':'1'});
-      imgWrap.innerHTML = `<img src="${escAttr(data.sketch.drawing)}" style="width:100%;display:block">`;
-      (data.sketch.doors||[]).forEach(dr=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${escAttr(dr.x)}%;top:${escAttr(dr.y)}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><span style="font-size:18px">🚪</span><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:1px;white-space:nowrap;font-weight:600;border:1px solid #ccc">출입구</div></div>`;
+      imgWrap.style.containerType='inline-size';   // cqw 기준 = 도면 폭
+      const skImg = h('img',{src:sketchDisplaySrc(data.sketch),style:{width:'100%',display:'block'}});
+      // 세로로 긴 도면이 A4 한 장을 넘기지 않게 상자 폭을 비율로 제한(배지 정렬은 % 라 그대로 유지).
+      var SKETCH_MAX_H = 667;   // ≈500pt
+      var capSheet = function(){
+        var ar = skImg.naturalWidth>0 && skImg.naturalHeight>0 ? skImg.naturalWidth/skImg.naturalHeight : 0;
+        if(ar>0) imgWrap.style.maxWidth = Math.round(SKETCH_MAX_H*ar)+'px';
+      };
+      skImg.onload = capSheet;
+      if(skImg.complete) capSheet();
+      imgWrap.appendChild(skImg);
+      const markEls = [];
+      (data.sketch.doors||[]).forEach(function(dr,di){
+        var dy=Number(dr.y)||0;
+        var el = mkMark({x:Number(dr.x)||0,y:dy,emoji:'🚪',label:'출입구'}, levels[di], false);
+        markEls.push({el:el, x:Number(dr.x)||0, y:Number(dr.y)||0});
+        imgWrap.appendChild(el);
       });
-      (data.sketch.pins||[]).forEach(pin=>{
-        const pt=PIN_TYPES.find(p=>p.id===pin.type);
-        imgWrap.innerHTML += `<div style="position:absolute;left:${escAttr(pin.x)}%;top:${escAttr(pin.y)}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">${pt?.emoji||''}</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600;border:1px solid #ccc">${pt?.label||''}</div></div>`;
-      });
-      facPins.forEach(fp=>{
-        imgWrap.innerHTML += `<div style="position:absolute;left:${escAttr(fp.pin.x)}%;top:${escAttr(fp.pin.y)}%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center"><div style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.95);display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 1px 4px rgba(0,0,0,0.15);border:1px solid #ddd">${fp.emoji}</div><div style="font-size:9px;color:#333;background:rgba(255,255,255,0.85);padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;font-weight:600;border:1px solid #ccc">${fp.label}</div></div>`;
+      marks.forEach(function(m,i){
+        var el = mkMark(m, levels[doorList.length+i], true);
+        markEls.push({el:el, x:m.x, y:m.y});
+        imgWrap.appendChild(el);
       });
       skSec.appendChild(imgWrap);
+
+      // ── 레거시 좌표 이관(표시 전용, 저장 안 함) ──
+      // 옛 문서(v 없음·사진 마킹)는 도면 PNG 가 레터박스째 구워져 지면에서 1/3 크기로 실린다.
+      // 여백 없는 원본 사진으로 갈아끼우고 좌표만 사진 기준으로 옮긴다.
+      // 자연크기를 못 읽으면 손대지 않는다(= 지금까지의 화면 그대로).
+      if(data.sketch.v!==2 && data.sketch.mode==='photo' && data.sketch.bgPhoto && data.sketch.drawing){
+        Promise.all([imgAspect(data.sketch.drawing), imgAspect(data.sketch.bgPhoto)]).then(function(a){
+          var Ac=a[0], Ap=a[1];
+          if(!Ac || !Ap) return;
+          var rect = fitRectPct(Ac, Ap);
+          if(rect.w>99.5 && rect.h>99.5) return;      // 여백이 없던 문서 — 그대로 둔다
+          skImg.src = data.sketch.bgPhoto;
+          markEls.forEach(function(mk){
+            var p = canvasPctToPhotoPct({x:mk.x,y:mk.y}, rect);
+            mk.el.style.left = p.x+'%'; mk.el.style.top = p.y+'%';
+          });
+        });
+      }
     }
-    (data.sketch.pins||[]).filter(p=>p.note).forEach(pin=>{
-      const pt=PIN_TYPES.find(p=>p.id===pin.type);
-      skSec.appendChild(makeRow(`${pt?.emoji} ${pt?.label}`,pin.note));
-    });
+
+    // ── 범례 — 도면 위 라벨이 겹쳐도 여기서 항목·메모를 읽을 수 있다 ──
+    if(marks.length){
+      const legend = h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:'6px 16px',marginTop:'4px'},'data-sketch-legend':'1'});
+      marks.forEach(function(m){
+        var row = h('div',{style:{display:'flex',alignItems:'flex-start',gap:'6px',fontSize:'14px',color:T.text,lineHeight:'1.45'}});
+        row.appendChild(h('span',{style:{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',
+          width:'18px',height:'18px',borderRadius:'50%',background:T.accent,color:T.accentText,
+          fontSize:'11px',fontWeight:'700',marginTop:'2px'}}, String(m.no)));
+        row.appendChild(h('span',{style:{flex:'1',minWidth:'0'}},
+          (m.emoji?m.emoji+' ':'') + m.label + (m.note ? ' — ' + m.note : '')));
+        legend.appendChild(row);
+      });
+      skSec.appendChild(legend);
+    }
     inner.appendChild(skSec);
   }
 
