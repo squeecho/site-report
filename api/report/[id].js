@@ -40,6 +40,19 @@ function safeArr(arr) {
   return Array.isArray(arr) ? arr : [];
 }
 
+// The report editor stores measure.area in pyeong (py), not square metres.
+// Match the existing estimate consumer's conversion without rewriting storage.
+function reportArea(area) {
+  const input = typeof area === 'string' ? area.trim() : area;
+  const numeric = typeof input === 'number' || (typeof input === 'string'
+    && /^(?:\d+(?:\.\d*)?|\.\d+|\d{1,3}(?:,\d{3})+(?:\.\d+)?)(?:e[+-]?\d+)?$/i.test(input));
+  const py = numeric ? Number(typeof input === 'string' ? input.replace(/,/g, '') : input) : NaN;
+  const m2 = Math.round(py * 3.305785 * 100) / 100;
+  return Number.isFinite(py) && py > 0 && Number.isFinite(m2) && m2 > 0
+    ? { area_pyeong: py, area_m2: m2 }
+    : { area_pyeong: null, area_m2: null };
+}
+
 // Firestore doc → 견적 시스템용 JSON 변환
 function formatReport(id, data) {
   const info = data.info || {};
@@ -86,7 +99,7 @@ function formatReport(id, data) {
       ceiling_finish_mm: measure.ceilingFinish || null,
       ceiling_slab_mm: measure.ceilingSlab || null,
       ceiling_beam_mm: measure.ceilingBeam || null,
-      area_m2: measure.area || null,
+      ...reportArea(measure.area),
       has_floor_plan: !!(measure.floorPlan),
     },
 
