@@ -365,6 +365,7 @@ let editingId = null; // report ID when editing existing
 let fromWizard = false; // true when previewing from wizard (needs save)
 let reportsList = null; // cached list
 let data = makeInitialData();
+let cleanReportSnapshot = reportSnapshot(data);
 
 function makeInitialData(){
   return {
@@ -710,6 +711,7 @@ async function saveReport(){
       render();
       showShareModal(shareUrl, reportId, uploadFailed, uploadTotal);
     } else {
+      cleanReportSnapshot = reportSnapshot(data);
       clearCurrentDraft();
       render();
       showShareModal(shareUrl, reportId);
@@ -814,6 +816,7 @@ async function loadReport(id){
 function openLightbox(photos, startIdx){
   let idx = startIdx || 0;
   const ov = document.createElement('div');
+  ov.setAttribute('data-report-lightbox', '1');
   ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;touch-action:pan-y';
 
   const closeLB = () => {
@@ -1047,6 +1050,7 @@ function fetchReports(){
   staffSignIn().then(()=>db.collection('reports').orderBy('createdAt','desc').limit(50).get()).then(snap=>{
     // 삭제 표시된 것은 목록에서 빼되 버리지 않는다 — [삭제한 보고서]에서 복원한다(#142)
     reportsList = snap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(r=>r.status==='complete');
+    pruneUnchangedDrafts(reportsList);
     render();
   }).catch(err=>{
     console.error('Fetch error:',err);
@@ -1097,6 +1101,7 @@ function renderHome(){
   newBtn.innerHTML = `<span style="font-size:20px">+</span> 새 보고서 작성`;
   newBtn.onclick = () => {
     data = makeInitialData();
+    cleanReportSnapshot = reportSnapshot(data);
     editingId = null;
     step = 0;
     showReport = false;
@@ -1121,6 +1126,9 @@ function renderHome(){
         step = draft.step;
         editingId = draft.editingId;
         currentDraftId = draft.id;
+        const saved = (reportsList || []).find(r => r.id === draft.editingId && !r.deleted);
+        cleanReportSnapshot = typeof draft.cleanSnapshot === 'string' ? draft.cleanSnapshot
+          : saved ? reportSnapshot(saved) : draft.editingId ? null : reportSnapshot(makeInitialData());
         showReport = false;
         navigateTo('wizard');
       };
@@ -1325,6 +1333,9 @@ async function loadReportForEdit(id){
       measure: d.measure || makeInitialData().measure,
     };
     editingId = id;
+    currentDraftId = null;
+    cleanReportSnapshot = reportSnapshot(data);
+    step = 0;
     viewMode = false;
     showReport = true;
     navigateTo('report');
@@ -2935,7 +2946,7 @@ function renderReport(){
   if(!viewMode){
     const navRow = h('div',{style:{display:'flex',gap:'16px',marginBottom:'12px'},'data-pdf-hide':'1'});
     const homeBtn = h('button',{style:{background:'none',border:'none',color:T.text5,fontSize:'13px',cursor:'pointer',padding:'0'}},'← 목록');
-    homeBtn.onclick=()=>{reportsList=null;showReport=false;viewMode=false;editingId=null;currentDraftId=null;currentView='home';history.replaceState({view:'home'},'','/');render(true);};
+    homeBtn.onclick=()=>{autoSave();reportsList=null;showReport=false;viewMode=false;editingId=null;currentDraftId=null;currentView='home';history.replaceState({view:'home'},'','/');render(true);};
     navRow.appendChild(homeBtn);
     headerDiv.appendChild(navRow);
   }
@@ -3400,6 +3411,7 @@ function renderReport(){
 
 // ==================== History Navigation ====================
 function navigateTo(view){
+  if(shouldAutoSave()) autoSave();
   currentView = view;
   history.pushState({view},'');
   render(true);
@@ -3408,13 +3420,14 @@ function navigateTo(view){
 window.addEventListener('popstate', e => {
   const state = e.state;
   // Close lightbox if open
-  const lb = document.querySelector('[style*="z-index: 9999"], [style*="z-index:9999"]');
+  const lb = document.querySelector('[data-report-lightbox]');
   if(lb){ lb.remove(); return; }
 
   // 손님 경로로 로드된 문서(게이트 미적용)에서 뒤/앞 버튼으로 작성 홈에 도달하는 경로 차단.
   // 예) 라이트박스 열고 뒤로→앞으로 하면 state.view 가 없어 홈이 렌더됐다.
   if(GUEST_ENTRY && (!state || !state.view || state.view === 'home')){ location.replace('/'); return; }
 
+  if(shouldAutoSave()) autoSave();
   if(state && state.view){
     currentView = state.view;
     if(state.view === 'home'){ showReport=false; viewMode=false; }
@@ -3432,6 +3445,47 @@ window.addEventListener('popstate', e => {
 // ==================== Auto Save (localStorage) ====================
 var DRAFTS_KEY = 'iggg_report_drafts';
 var currentDraftId = null; // track which draft is being edited
+
+// 서버 메타데이터·편집 UI 플래그를 제외한 실제 보고서 내용 비교.
+// 업로드 전 data: 사진도 포함한다. 저장용 투영(buildSaveData)은 실패 사진을 빼므로 쓰지 않는다.
+function reportSnapshot(source){
+  const defaults = makeInitialData();
+  const content = {};
+  for(const key of Object.keys(defaults)) content[key] = {...defaults[key], ...((source || {})[key] || {})};
+  content.photos.interiorTags = Array.from({length: content.photos.interior.length}, (_, i) =>
+    (content.photos.interiorTags || [])[i] || '');
+  content.electric.panelEntries = (content.electric.panelEntries || []).map(entry => {
+    const {_custom, ...values} = entry;
+    return values;
+  });
+  function stable(value){
+    if(Array.isArray(value)) return value.map(stable);
+    if(value && typeof value === 'object'){
+      const sorted = {};
+      Object.keys(value).sort().forEach(key => { if(value[key] !== undefined) sorted[key] = stable(value[key]); });
+      return sorted;
+    }
+    return value;
+  }
+  return JSON.stringify(stable(content));
+}
+
+function pruneUnchangedDrafts(reports){
+  // 목록 조회가 성공한 서버 저장본과 같은 초안만 정리. 미조회·삭제된 보고서와 실제 수정분은 보존.
+  try {
+    const drafts = getAllDrafts();
+    let changed = false;
+    Object.keys(drafts).forEach(id => {
+      const draft = drafts[id];
+      const saved = reports.find(r => r.id === draft.editingId && !r.deleted && r.status === 'complete');
+      if(saved && draft.data && reportSnapshot(draft.data) === reportSnapshot(saved)){
+        delete drafts[id];
+        changed = true;
+      }
+    });
+    if(changed) localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch(e){ /* 조회 실패나 저장공간 제한으로 초안을 지우지 않는다. */ }
+}
 
 function genDraftId(){ return 'd_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); }
 
@@ -3452,6 +3506,11 @@ function getAllDrafts(){
 }
 
 function autoSave(){
+  if(!shouldAutoSave()) return;
+  if(!hasUnsavedWork()){
+    clearCurrentDraft();
+    return;
+  }
   try {
     if(!currentDraftId) currentDraftId = genDraftId();
     var drafts = getAllDrafts();
@@ -3459,6 +3518,7 @@ function autoSave(){
       data: data,
       step: step,
       editingId: editingId,
+      cleanSnapshot: cleanReportSnapshot,
       ts: Date.now()
     };
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
@@ -3470,7 +3530,7 @@ function autoSave(){
       if(keys.length > 1){
         keys.sort(function(a,b){ return drafts[a].ts - drafts[b].ts; });
         delete drafts[keys[0]];
-        drafts[currentDraftId] = { data: data, step: step, editingId: editingId, ts: Date.now() };
+        drafts[currentDraftId] = { data: data, step: step, editingId: editingId, cleanSnapshot: cleanReportSnapshot, ts: Date.now() };
         localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
         return;                       // 재시도 성공 — 조용히 넘어가도 된다
       }
@@ -3508,7 +3568,7 @@ function loadAllDrafts(){
   Object.keys(drafts).forEach(function(k){
     var d = drafts[k];
     if(d.data && d.data.info && d.data.info.siteName){
-      arr.push({ id: k, data: d.data, step: d.step, editingId: d.editingId, ts: d.ts });
+      arr.push({ id: k, data: d.data, step: d.step, editingId: d.editingId, cleanSnapshot: d.cleanSnapshot, ts: d.ts });
     }
   });
   arr.sort(function(a,b){ return b.ts - a.ts; }); // newest first
@@ -3549,7 +3609,7 @@ try {
 //   보고서 미리보기(report)에서 새로고침하면 **작성분이 그대로 소실**됐다.
 //   편집을 마치고 미리보기로 넘어간 상태가 오히려 잃을 게 가장 많은 시점이다.
 function shouldAutoSave(){
-  return isUnlocked && (currentView === 'wizard' || currentView === 'report');
+  return isUnlocked && !viewMode && !GUEST_ENTRY && (currentView === 'wizard' || currentView === 'report');
 }
 
 // Auto-save every 3 seconds when editing
@@ -3579,19 +3639,10 @@ window.addEventListener('beforeunload', function(e){
 
 // 저장(공유) 전 작성분이 있는가 — 이탈 경고의 조건.
 function hasUnsavedWork(){
-  try {
-    if(saving) return true;                 // 저장 진행 중이면 무조건 붙잡는다
-    if(!data) return false;
-    // ⚠실모델 필드로 판정(전수검증 V5 ★4). 예전엔 data.siteName/faces 처럼
-    //   **모델에 없는 키**를 봐서 항상 false — 경고가 여전히 한 번도 안 떴다.
-    if(((data.info||{}).siteName||'').trim()) return true;
-    if(((data.measure||{}).floorPlan||[]).length) return true;
-    var sk = data.sketch||{};
-    if(sk.bgPhoto || (sk.polygon&&sk.polygon.length) ||
-       (sk.doors&&sk.doors.length) || (sk.pins&&sk.pins.length)) return true;
-    if(((data.photos||{}).exterior||[]).length || ((data.photos||{}).interior||[]).length) return true;
-    return false;
-  } catch(e){ return false; }
+  if(viewMode || GUEST_ENTRY) return false;
+  if(saving) return true;
+  // 기준을 모르는 기존 초안은 수정분으로 보존한다.
+  return !!data && (cleanReportSnapshot === null || reportSnapshot(data) !== cleanReportSnapshot);
 }
 
 // Set initial state — /?id=... 로 진입해도 주소창은 정규 공유주소 /report/... 로 정규화 (주소창 복사 실수 방지)
