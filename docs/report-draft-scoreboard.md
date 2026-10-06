@@ -10,7 +10,7 @@
 | 저장 성공 후 초안 재생성 방지 | parity | P0 | 저장 후 타이머 경과 UI, 전체 JS saveReport 회귀시험 |
 | 사진 업로드 실패분 보존 | parity | P0 | saveReport 실제 함수 + 업로드 transport 실패 회귀시험 |
 | 링크복사 알림 중 뒤로가기 | parity | P1 | z-index 대신 실제 사진 확대창만 닫기. 알림 표시 중 뒤로가기 UI 통과 |
-| 배포 후 실보고서 재확인 | partial | P0 | 배포 후 기록 예정 |
+| 배포 후 실보고서 재확인 | parity | P0 | 유박사차이니즈 안산 조회·복사·즉시 뒤로가기: 초안 없음. 이전 동일 초안 자동 정리 확인 |
 
 ## 경쟁 가설과 관측
 1. 링크 복사가 내용을 수정한다: 기각. `renderReport`의 공유 버튼은 clipboard와 toast만 사용한다.
@@ -33,3 +33,14 @@
 ## Git/배포 보호
 - 운영 시작 SHA: `7f53e041afbf1ab42f2d4010f6521ea6cebafc52`, site-report / `dpl_GR1q729FRWBNTZ3CH7Cf1FUmoH3L`.
 - 기존 main 로컬 전용 `a3950cd`(면적 API 변환)는 보호. 긴급 수정은 운영 SHA 기반 별도 worktree에서 만들었으며 해당 API 변경을 배포에 섞지 않는다.
+
+## 배포 및 최종 검증
+- 제품 커밋: `ff5a5de0a2a00226868a98d66232f9605028c386` (전체 SHA는 Git 최종 기록 참조).
+- Vercel: `dpl_A35zCwrxyFkKK23h3HAJzs55zAPD`, site-report, Ready, `https://site-report-9xu9egv30-iggg.vercel.app`.
+- `survey.igggstudio.com` 승격 완료, HTTP 200, 제공 HTML과 배포 worktree `index.html` byte 일치.
+- 기존 프로젝트/설정/regions/crons 동일. 새 권한·환경변수·유료 자원 생성 없음.
+- 실제 Chrome 직원 세션에서 동일 현장 조회·복사·즉시 뒤로가기 성공. 기존 열람 초안도 성공한 서버 목록 조회 뒤 사라짐. 콘솔 error 0.
+- 전체 통합 시험 12/12(새 초안 시험 8 + 보호한 기존 API 시험 4). 모바일 에뮬레이션 UI 7개 흐름 통과.
+- GitHub push는 HTTPS 인증 부재로 실패. 반복하지 않고 기존 Vercel 인증으로 정확한 긴급 수정 소스를 배포함. committed/deployed/observed=true, pushed=false.
+- 이전 운영 복구 기준은 `dpl_GR1q729FRWBNTZ3CH7Cf1FUmoH3L`.
+- 별도 백로그: 이름 없는 신규/편집 초안의 목록 제목·발견성은 기존 siteName 필터가 남아 있음. 이번 현장명 있는 저장 보고서 조회 결함과 분리.
