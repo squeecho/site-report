@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <script>
 // 공유 열람(/report/:id, /?id=)은 외부 손님 경로 — SSO 게이트 제외.
-// 그 외(작성 화면)는 ig works 로그인으로 통제(사장 확정 2026-07-27).
+// 그 외(작성 화면)는 ig works 로그인으로 통제(확정 2026-07-27).
 // has('id') 는 빈 값(?id=)도 true → 게이트 우회. 반드시 '값'이 있어야 손님 경로로 인정.
 if (!/^\/report\//.test(location.pathname) && !new URLSearchParams(location.search).get('id')) {
   document.write('<script src="https://www.igggstudio.com/sso-gate.js"><\/script>');
@@ -423,7 +423,7 @@ function compressImage(file, maxSize=1200, quality=0.7){
 
 // 여러 장 선택 → **고른 순서 그대로** 압축해 한 번에 덧붙이고 render() 는 한 번만.
 // 예전엔 장마다 then(push+render) 라 작은 파일이 먼저 끝나 '압축 완료 순'으로 섞였다
-// (사장 2026-09-22 "올린 뒤 순서를 바꾸고 싶다"의 원인 일부). 실패(null)는 빼고 붙인다.
+// (2026-09-22 "올린 뒤 순서를 바꾸고 싶다"의 원인 일부). 실패(null)는 빼고 붙인다.
 function pickPhotos(e, addAll){
   const files = Array.from(e.target.files || []);   // value='' 전에 복사 — File 객체는 유지된다
   e.target.value = '';
@@ -1217,7 +1217,7 @@ function renderHome(){
         delBtn.style.fontSize = '13px';
         delBtn.style.fontWeight = '600';
         delBtn.onclick = (e) => { e.stopPropagation(); restoreReport(report.id); };
-        // 완전삭제는 **여기서만** 되돌릴 수 없다 — 버튼으로 분명히 꺼낸다(사장 요청)
+        // 완전삭제는 **여기서만** 되돌릴 수 없다 — 버튼으로 분명히 꺼낸다(요청)
         const purgeBtn = card.querySelector('.purge-btn');
         if(purgeBtn) purgeBtn.onclick = (e) => { e.stopPropagation(); purgeReport(report.id, siteName); };
       } else {
@@ -1515,7 +1515,7 @@ function makeMultiSelectField(wrap, label, tags, onToggle, customValue, onCustom
 }
 
 // ==================== 사진 순서 변경 (길게 눌러 끌기) ====================
-// 사장 2026-09-22 "올리고 난 뒤 사진 순서를 바꿀 수 있으면". 사진은 문자열 배열이고
+// 2026-09-22 "올리고 난 뒤 사진 순서를 바꿀 수 있으면". 사진은 문자열 배열이고
 // 순서 = 배열 순서라(저장·임시저장·손님 공유·PDF·라이트박스·API 전부) 로컬 배열만
 // 옮기고 render() 하면 전 경로에 전파된다. 셀마다 data-ri(실제 배열 인덱스)를 달고,
 // 드래그 세션은 모듈 변수에 둔다 — render() 가 DOM 을 통째로 갈아엎기 때문에
@@ -2774,7 +2774,7 @@ function renderStepMeasure(wrap){
 
 // ==================== PDF Export ====================
 // ⚠카톡 등 '인앱 브라우저'는 window.print() 를 지원하지 않는다 — [PDF 저장]을 눌러도
-//   아무 일도 일어나지 않고 끝난다(사장 확인 2026-09-03: 카톡에서 열면 저장 불가,
+//   아무 일도 일어나지 않고 끝난다(확인 2026-09-03: 카톡에서 열면 저장 불가,
 //   주소를 복사해 다른 브라우저로 열면 정상). 그래서 인앱이면 인쇄를 시도하지 않고
 //   **같은 주소를 외부 브라우저로 넘겨준다**. 카톡은 전용 스킴이 있어 한 번에 열리고,
 //   전환이 막힌 iOS 인앱은 '⋯ → 브라우저로 열기' 안내로 대신한다.
@@ -2785,7 +2785,7 @@ function inAppBrowserKind(){
   return '';
 }
 
-// 인앱 브라우저 안내 — 외부 브라우저로 열기만 남긴다(사장 피드백 2026-09-03: 문구는 부드럽게,
+// 인앱 브라우저 안내 — 외부 브라우저로 열기만 남긴다(피드백 2026-09-03: 문구는 부드럽게,
 //   버튼은 최소로, 배경을 눌러도 닫히게). 카톡이 아닌 iOS 인앱은 강제 전환이 막혀 있어
 //   버튼 대신 '오른쪽 위 ⋯ → 브라우저로 열기' 안내 문장으로 대신한다.
 function showInAppPdfGuide(kind){
