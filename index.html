@@ -161,13 +161,8 @@ try {
 
 // ==================== Cloudinary (사진 저장) ====================
 // Firebase Storage가 Spark 플랜에서 막혀 사진은 Cloudinary 무료 저장소 사용.
-// 아래 두 값을 Cloudinary 대시보드 값으로 채우세요:
-//  - cloudName: 대시보드 상단 "Cloud name"
-//  - uploadPreset: Settings > Upload > Upload presets 에서 만든 Unsigned 프리셋 이름
-const CLOUDINARY = {
-  cloudName: "djrn8cmfu",
-  uploadPreset: "ig-default"
-};
+// 서명 업로드(보안 감사 2026-11-12 #12): 계정 이름 · 키 · 서명은 /api/cloudinary-sign 이
+// 승인 직원에게만 내려준다(uploadSignature 참고). 화면에는 프리셋 이름을 두지 않는다.
 
 // ==================== HTML Escape (XSS 방어) ====================
 // Firestore 가 비인증 write 개방 상태라 '렌더 이스케이프'가 실질 방어선이다.
@@ -473,28 +468,75 @@ function bumpUploadProgress(){
   refreshSaveBtn();
 }
 
+// 업로드 서명 — 보고서(reportId)마다 한 번 받아 여러 장이 같이 쓴다(사진마다 받으면
+// 직원 확인 왕복이 장 수만큼 늘어난다). Cloudinary 는 서명을 1시간 받아 주므로 50분 뒤엔
+// 새로 받는다. 실패한 발급은 캐시하지 않는다(다음 시도에서 다시 받는다).
+const UPLOAD_SIG_TTL_MS = 50 * 60 * 1000;
+const UPLOAD_SIG_TIMEOUT_MS = 20000;
+const _uploadSigs = new Map();   // reportId → {p, until}
+function uploadSignature(reportId, fresh){
+  const hit = _uploadSigs.get(reportId);
+  if(!fresh && hit && hit.until > Date.now()) return hit.p;
+  const p = (async () => {
+    const idt = await staffIdToken();
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = setTimeout(()=>{ try{ if(ctrl) ctrl.abort(); }catch(e){} }, UPLOAD_SIG_TIMEOUT_MS);
+    try {
+      const r = await fetch('/api/cloudinary-sign', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+idt},
+        body: JSON.stringify({id: reportId}),
+        signal: ctrl ? ctrl.signal : undefined
+      });
+      if(!r.ok){
+        const err = new Error(`사진 업로드 서명 발급 실패 (${r.status})`);
+        // 401·403 = 로그인 · 승인 문제, 400 = 잘못된 보고서 — 다시 보내도 같다. 5xx 는 재시도.
+        if(r.status >= 400 && r.status < 500) err.noRetry = true;
+        throw err;
+      }
+      const j = await r.json();
+      if(!j || !j.signature || !j.cloudName || !j.apiKey) throw new Error('사진 업로드 서명 응답이 비었습니다');
+      return j;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  _uploadSigs.set(reportId, {p, until: Date.now() + UPLOAD_SIG_TTL_MS});
+  p.catch(()=>{ const cur = _uploadSigs.get(reportId); if(cur && cur.p === p) _uploadSigs.delete(reportId); });
+  return p;
+}
+
 async function uploadPhoto(dataUrl, reportId, idx, onRetry){
-  // Cloudinary unsigned 업로드 (data URI를 그대로 전송 — WebP/JPEG 포맷 유지)
+  // Cloudinary 서명 업로드 (data URI를 그대로 전송 — WebP/JPEG 포맷 유지)
   // 시도마다 AbortController 로 타임아웃을 걸고(응답이 영영 안 와도 끝난다),
-  // 네트워크·5xx 는 잠깐 쉬었다 재시도한다.
+  // 네트워크·5xx 는 잠깐 쉬었다 재시도한다. 서명이 낡았다는 거절은 새 서명으로 한 번 더.
   let lastErr = null;
+  let freshSig = false;
   for(let attempt = 1; attempt <= PHOTO_UPLOAD_ATTEMPTS; attempt++){
     if(attempt > 1 && onRetry) onRetry(attempt);
     const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     const timer = setTimeout(()=>{ try{ if(ctrl) ctrl.abort(); }catch(e){} }, PHOTO_UPLOAD_TIMEOUT_MS);
     try {
+      const sig = await uploadSignature(reportId, !!(lastErr && lastErr.staleSig));
       const form = new FormData();
       form.append('file', dataUrl);
-      form.append('upload_preset', CLOUDINARY.uploadPreset);
-      form.append('folder', `reports/${reportId}`);
-      const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY.cloudName}/image/upload`, {
+      form.append('api_key', sig.apiKey);
+      form.append('timestamp', String(sig.timestamp));
+      form.append('signature', sig.signature);
+      form.append('folder', sig.folder);
+      form.append('allowed_formats', sig.allowedFormats);
+      const resp = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(sig.cloudName)}/image/upload`, {
         method:'POST', body: form, signal: ctrl ? ctrl.signal : undefined
       });
       if(!resp.ok){
         const t = await resp.text();
         const err = new Error(`사진 업로드 실패 (Cloudinary ${resp.status}): ` + t);
-        // 4xx = 설정·용량 문제라 다시 보내도 같은 결과 → 재시도로 시간 낭비하지 않는다.
-        if(resp.status >= 400 && resp.status < 500) err.noRetry = true;
+        // 서명 거절(401) · 1시간 지난 서명(Stale request) — 새 서명으로 한 번만 다시 보낸다.
+        if(!freshSig && (resp.status === 401 || /stale request/i.test(t))){
+          err.staleSig = true;
+          freshSig = true;
+        // 그 밖의 4xx = 설정·형식·용량 문제라 다시 보내도 같은 결과 → 재시도로 시간 낭비하지 않는다.
+        } else if(resp.status >= 400 && resp.status < 500) err.noRetry = true;
         throw err;
       }
       const json = await resp.json();
