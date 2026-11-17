@@ -261,3 +261,26 @@ test('덕트 화살표 방향 설정 시 라벨 알약이 화살표 궤적을 �
   };
   assert.equal(boxOverlap(pillBox, tipBox), 0);
 });
+
+test('건물연결 등으로 방향이 없는 덕트는 화살표 대신 타겟 점으로 표시된다', () => {
+  const { dom, ctx } = bootApp();
+  vm.runInNewContext(`
+    currentView = 'report';
+    viewMode = true;
+    showReport = true;
+    data.info.siteName = '건물연결 테스트';
+    data.sketch = {
+      v: 2,
+      mode: 'draw',
+      bgPhoto: null,
+      drawing: null,
+      polygon: [{x:15,y:15},{x:85,y:15},{x:85,y:85},{x:15,y:85}],
+      doors: [],
+      pins: [{id:21,type:'duct',x:55,y:45,note:'건물 입상 덕트 연결'}]
+    };
+    render();
+  `, ctx);
+  const marks = findByAttr(dom.app, 'data-sk-mark', '1');
+  assert.equal(marks.length, 1);
+  assert.equal(/data-duct-arrow-g/.test(marks[0].innerHTML), false);
+});

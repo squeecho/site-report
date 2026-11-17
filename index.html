@@ -2088,7 +2088,6 @@ function openSketchOverlay(pinKey, emoji, label){
     imgDiv.querySelectorAll('.ov-pin').forEach(e=>e.remove());
     const currentPin = data.facility[pinKey];
     if(currentPin){
-      if(pinKey==='ductPin' && typeof currentPin.angle!=='number') currentPin.angle = sketchSelectedDuctAngle;
       const pinEl = document.createElement('div');
       pinEl.className = 'ov-pin';
       pinEl.style.cssText = `position:absolute;left:${currentPin.x}%;top:${currentPin.y}%;transform:translate(-50%,-50%);z-index:5;pointer-events:none`;
@@ -2113,13 +2112,19 @@ function openSketchOverlay(pinKey, emoji, label){
       btns.style.cssText = 'padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;align-items:center';
       if(pinKey==='ductPin'){
         const dirWrap = document.createElement('div');
-        dirWrap.style.cssText = 'display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center';
-        dirWrap.innerHTML = `<span style="color:#cbd5e1;font-size:12px;margin-right:2px">화살표 방향</span>`;
+        dirWrap.style.cssText = 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center';
+        dirWrap.innerHTML = `<span style="color:#cbd5e1;font-size:12px;margin-right:2px">방향</span>`;
+        const noDirAct = typeof data.facility.ductPin.angle!=='number';
+        const noBtn = document.createElement('button');
+        noBtn.style.cssText = `height:30px;padding:0 9px;border-radius:7px;border:1px solid ${noDirAct?'#10b981':'#475569'};background:${noDirAct?'#0f766e':'rgba(255,255,255,0.08)'};color:#fff;font-size:11.5px;font-weight:600;cursor:pointer`;
+        noBtn.textContent = '없음(건물연결)';
+        noBtn.onclick = () => { delete data.facility.ductPin.angle; sketchSelectedDuctAngle = null; renderPin(); };
+        dirWrap.appendChild(noBtn);
         DUCT_DIRS.forEach(d=>{
-          const curA = typeof data.facility.ductPin.angle==='number' ? data.facility.ductPin.angle : -90;
-          const active = Math.abs((((d.deg - curA) % 360) + 540) % 360 - 180) <= 22.5;
+          const curA = data.facility.ductPin.angle;
+          const active = typeof curA==='number' && Math.abs((((d.deg - curA) % 360) + 540) % 360 - 180) <= 22.5;
           const dBtn = document.createElement('button');
-          dBtn.style.cssText = `width:32px;height:32px;border-radius:7px;border:1px solid ${active?'#10b981':'#475569'};background:${active?'#0f766e':'rgba(255,255,255,0.08)'};color:#fff;font-size:15px;font-weight:700;cursor:pointer`;
+          dBtn.style.cssText = `width:30px;height:30px;border-radius:7px;border:1px solid ${active?'#10b981':'#475569'};background:${active?'#0f766e':'rgba(255,255,255,0.08)'};color:#fff;font-size:14px;font-weight:700;cursor:pointer`;
           dBtn.textContent = d.sym;
           dBtn.onclick = () => {
             data.facility.ductPin.angle = d.deg;
@@ -2157,8 +2162,9 @@ function openSketchOverlay(pinKey, emoji, label){
     const cy = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
     const xP = Math.max(0, Math.min(100, ((cx - rect.left)/rect.width)*100));
     const yP = Math.max(0, Math.min(100, ((cy - rect.top)/rect.height)*100));
-    const prevAngle = data.facility[pinKey] && typeof data.facility[pinKey].angle==='number' ? data.facility[pinKey].angle : sketchSelectedDuctAngle;
-    data.facility[pinKey] = pinKey==='ductPin' ? {x:xP,y:yP,angle:prevAngle} : {x:xP,y:yP};
+    const existing = data.facility[pinKey];
+    const nextAngle = existing ? existing.angle : sketchSelectedDuctAngle;
+    data.facility[pinKey] = (pinKey==='ductPin' && typeof nextAngle==='number') ? {x:xP,y:yP,angle:nextAngle} : {x:xP,y:yP};
     renderPin();
   };
   imgDiv.addEventListener('mousedown', e=>{ ovDragging=true; setFromEv(e); });
@@ -2745,16 +2751,19 @@ function renderStepSketch(wrap){
           var pt=PIN_TYPES.find(function(p){return p.id===tId;});
           gEmoji=(pt?pt.emoji:''); gLabel=(pt?pt.label:''); gCol=pinColor(tId);
         }
-        // 실제 찍히는 좌표는 정가운데 조준점, 손가락에 가리지 않게 배지는 위(bottom:18px)에 띄운다.
+        var gAng = sess.ref
+          ? (typeof sess.ref.angle==='number' ? sess.ref.angle : null)
+          : (sess.kind==='pin' && sess.pinType==='duct' && typeof sketchSelectedDuctAngle==='number' ? sketchSelectedDuctAngle : null);
+        // 실제 찍히는 좌표는 정가운데 조준점, 손가락에 가리지 않게 배지는 위(bottom:22px)에 띄운다.
         g.innerHTML='<div style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:42px;height:42px;pointer-events:none">'
           + '<div style="position:absolute;left:50%;top:0;bottom:0;border-left:1.5px dashed rgba(37,99,235,0.75)"></div>'
           + '<div style="position:absolute;top:50%;left:0;right:0;border-top:1.5px dashed rgba(37,99,235,0.75)"></div>'
-          + ((((sess.ref && sess.ref.type==='duct') || (!sess.ref && sess.kind==='pin' && sess.pinType==='duct')))
-            ? ('<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)">' + makeDuctArrowSvg(sess.ref && typeof sess.ref.angle==='number' ? sess.ref.angle : sketchSelectedDuctAngle, gCol, false, '62px', false, '') + '</div>')
+          + (typeof gAng==='number'
+            ? ('<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)">' + makeDuctArrowSvg(gAng, gCol, false, '62px', false, '') + '</div>')
             : '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:'+gCol+';border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.45)"></div>')
           + '</div>'
           + '<div style="position:absolute;left:0;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.97);color:#0f172a;padding:3px 8px;border-radius:999px;border:1px solid rgba(15,23,42,0.25);border-left:3px solid '+gCol+';font-size:11px;font-weight:700;white-space:nowrap">'
-          + gEmoji+' '+gLabel+((((sess.ref && sess.ref.type==='duct') || (!sess.ref && sess.kind==='pin' && sess.pinType==='duct')))?' '+angleToArrow(sess.ref && typeof sess.ref.angle==='number' ? sess.ref.angle : sketchSelectedDuctAngle):'')+'</div>';
+          + gEmoji+' '+gLabel+(typeof gAng==='number'?' '+angleToArrow(gAng):'')+'</div>';
         return g;
       };
       var moveGhost=function(g,pos){ g.style.left=pos.x+'px'; g.style.top=pos.y+'px'; };
@@ -2906,12 +2915,13 @@ function renderStepSketch(wrap){
               sketchSelectedMid=null;
             } else {
               var pid=nextSkId;
-              var newPin = sess.pinType==='duct'
+              var useAng = sess.pinType==='duct' && typeof sketchSelectedDuctAngle==='number';
+              var newPin = useAng
                 ? {id:pid,type:sess.pinType,x:xP,y:yP,angle:sketchSelectedDuctAngle,note:''}
                 : {id:pid,type:sess.pinType,x:xP,y:yP,note:''};
               d2.pins=[].concat(d2.pins||[],[newPin]);
               var fkA=PIN_FACILITY_MAP[sess.pinType];
-              if(fkA) data.facility[fkA]=sess.pinType==='duct'?{x:xP,y:yP,angle:sketchSelectedDuctAngle}:{x:xP,y:yP};
+              if(fkA) data.facility[fkA]=useAng?{x:xP,y:yP,angle:sketchSelectedDuctAngle}:{x:xP,y:yP};
               sketchActionHistory.push({type:'addPin',id:pid,pinType:sess.pinType});
               sketchSelectedMid = (sess.pinType==='duct') ? ('pin-'+pid) : null;
             }
@@ -3024,12 +3034,24 @@ function renderStepSketch(wrap){
         qTop.appendChild(qClose);
         qBar.appendChild(qTop);
         if(selPin && selPin.type==='duct'){
-          const dRow = h('div',{style:{display:'flex',alignItems:'center',gap:'5px',flexWrap:'nowrap',overflowX:'auto',paddingTop:'6px',borderTop:`1px solid ${T.border2}`}});
-          dRow.appendChild(h('span',{style:{flex:'none',fontSize:'11.5px',color:T.text2,fontWeight:'600',marginRight:'2px'}},'방향'));
+          const dRow = h('div',{style:{display:'flex',alignItems:'center',gap:'4px',flexWrap:'nowrap',overflowX:'auto',paddingTop:'6px',borderTop:`1px solid ${T.border2}`}});
+          dRow.appendChild(h('span',{style:{flex:'none',fontSize:'11px',color:T.text2,fontWeight:'600',marginRight:'1px'}},'방향'));
+          const noDir = typeof selPin.angle!=='number';
+          const noBtn = h('button',{title:'방향 없음(건물연결)',style:{flex:'none',height:'26px',padding:'0 7px',borderRadius:'7px',border:noDir?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:noDir?'#0f766e':T.chipInactive,color:noDir?'#fff':T.text,fontSize:'11px',fontWeight:'600',cursor:'pointer'}}, '없음');
+          noBtn.onclick = () => {
+            sketchActionHistory.push({type:'rotatePin',id:selPin.id,data:selPin.angle});
+            delete selPin.angle;
+            sketchSelectedDuctAngle = null;
+            const fkD=PIN_FACILITY_MAP[selPin.type];
+            if(fkD) data.facility[fkD]={x:selPin.x,y:selPin.y};
+            invalidateSketchImage();
+            render();
+          };
+          dRow.appendChild(noBtn);
           DUCT_DIRS.forEach(dd=>{
-            const curAng = typeof selPin.angle==='number' ? selPin.angle : -90;
-            const isAct = typeof selPin.angle==='number' && Math.abs((((dd.deg - curAng) % 360) + 540) % 360 - 180) <= 22.5;
-            const dBtn = h('button',{style:{flex:'none',width:'30px',height:'28px',borderRadius:'7px',border:isAct?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:isAct?'#0f766e':T.chipInactive,color:isAct?'#fff':T.text,fontSize:'14px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
+            const curAng = selPin.angle;
+            const isAct = typeof curAng==='number' && Math.abs((((dd.deg - curAng) % 360) + 540) % 360 - 180) <= 22.5;
+            const dBtn = h('button',{style:{flex:'none',width:'26px',height:'26px',borderRadius:'7px',border:isAct?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:isAct?'#0f766e':T.chipInactive,color:isAct?'#fff':T.text,fontSize:'13px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
             dBtn.onclick = () => {
               sketchActionHistory.push({type:'rotatePin',id:selPin.id,data:selPin.angle});
               selPin.angle = dd.deg;
@@ -3139,11 +3161,15 @@ function renderStepSketch(wrap){
       pinSel.appendChild(pinChips);
       const editingDuct = !!(sketchSelectedMid && sketchSelectedMid.startsWith('pin-') && (d2.pins||[]).some(p=>'pin-'+p.id===sketchSelectedMid && p.type==='duct'));
       if(sketchSelectedPin==='duct' && !editingDuct){
-        const dDock = h('div',{style:{display:'flex',alignItems:'center',gap:'5px',marginTop:'8px',flexWrap:'nowrap',overflowX:'auto',paddingBottom:'2px'}});
-        dDock.appendChild(h('span',{style:{flex:'none',fontSize:'11.5px',color:T.text2,fontWeight:'600'}},'화살표 방향'));
+        const dDock = h('div',{style:{display:'flex',alignItems:'center',gap:'4px',marginTop:'8px',flexWrap:'nowrap',overflowX:'auto',paddingBottom:'2px'}});
+        dDock.appendChild(h('span',{style:{flex:'none',fontSize:'11px',color:T.text2,fontWeight:'600',marginRight:'1px'}},'방향'));
+        const noDockAct = typeof sketchSelectedDuctAngle!=='number';
+        const noDockBtn = h('button',{title:'방향 없음(건물연결)',style:{flex:'none',height:'26px',padding:'0 7px',borderRadius:'7px',border:noDockAct?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:noDockAct?'#0f766e':T.chipInactive,color:noDockAct?'#fff':T.text2,fontSize:'11px',fontWeight:'600',cursor:'pointer'}}, '없음');
+        noDockBtn.onclick = () => { sketchSelectedDuctAngle = null; render(); };
+        dDock.appendChild(noDockBtn);
         DUCT_DIRS.forEach(dd=>{
-          const act = Math.abs((((dd.deg - sketchSelectedDuctAngle) % 360) + 540) % 360 - 180) <= 22.5;
-          const db = h('button',{style:{flex:'none',width:'30px',height:'28px',borderRadius:'7px',border:act?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:act?'#0f766e':T.chipInactive,color:act?'#fff':T.text2,fontSize:'14px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
+          const act = typeof sketchSelectedDuctAngle==='number' && Math.abs((((dd.deg - sketchSelectedDuctAngle) % 360) + 540) % 360 - 180) <= 22.5;
+          const db = h('button',{style:{flex:'none',width:'26px',height:'26px',borderRadius:'7px',border:act?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:act?'#0f766e':T.chipInactive,color:act?'#fff':T.text2,fontSize:'13px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
           db.onclick = () => { sketchSelectedDuctAngle = dd.deg; render(); };
           dDock.appendChild(db);
         });
