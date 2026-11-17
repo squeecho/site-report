@@ -217,7 +217,8 @@ test('직접 스케치 보고서 렌더링은 벡터 SVG 평면도와 지시선�
         {id:12,type:'drain',x:78,y:43,note:''},
         {id:13,type:'gas',x:82,y:27,note:''},
         {id:14,type:'panel',x:54,y:62,note:''},
-        {id:15,type:'water',x:74,y:17,note:'현장 뒷문쪽'}
+        {id:15,type:'water',x:74,y:17,note:'현장 뒷문쪽'},
+        {id:16,type:'duct',x:61,y:73,angle:90,note:'후면 배기'}
       ]
     };
     render();
@@ -225,15 +226,38 @@ test('직접 스케치 보고서 렌더링은 벡터 SVG 평면도와 지시선�
 
   assert.equal(findByAttr(dom.app, 'data-sketch-floor', '1').length, 1);
   assert.equal(findByAttr(dom.app, 'data-sk-leaders', '1').length, 1);
-  assert.equal(findByAttr(dom.app, 'data-sk-mark', '1').length, 7);
-  assert.equal(findByAttr(dom.app, 'data-sk-callout', '1').length, 7);
+  assert.equal(findByAttr(dom.app, 'data-sk-mark', '1').length, 8);
+  const callouts = findByAttr(dom.app, 'data-sk-callout', '1');
+  assert.equal(callouts.length, 8);
   assert.equal(findByAttr(dom.app, 'data-sketch-legend', '1').length, 1);
+  const ductAnchor = findByAttr(dom.app, 'data-sk-mark', '1').find((el) => /data-duct-arrow-g/.test(el.innerHTML));
+  assert.ok(ductAnchor, '덕트 핀은 회전 화살표 SVG 를 렌더링해야 한다');
+  assert.ok(ductAnchor.innerHTML.includes('rotate(90)'));
 
   // 선택/하이라이트 등 편집 UI 상태가 data.sketch 영속 스냅샷에 섞이지 않아야 한다
   vm.runInNewContext(`
     data = makeInitialData();
     sketchSelectedMid = 'pin-99';
     sketchHighlightId = 'pin-99';
+    sketchSelectedDuctAngle = 45;
   `, ctx);
   assert.equal(ctx.reportSnapshot(ctx.data), snapBefore);
+});
+
+test('덕트 화살표 방향 설정 시 라벨 알약이 화살표 궤적을 가리지 않는다', () => {
+  const { ctx } = bootApp();
+  const items = [
+    { x: 60, y: 74, emoji: '💨', label: '덕트', no: 4, type: 'duct', angle: 90 },
+    { x: 30, y: 74, emoji: '🕳', label: '배수', no: 3, type: 'drain' },
+  ];
+  const layouts = ctx.sketchLayoutMarks(items, { aspect: 4 / 3, scale: 0.95 });
+  const ductLay = layouts[0];
+  const tipBox = { x1: 60 - 2.2, y1: 74 + 7.6 * (4 / 3) - 2.2, x2: 60 + 2.2, y2: 74 + 7.6 * (4 / 3) + 2.2 };
+  const pillBox = {
+    x1: ductLay.lx - ductLay.bw / 2,
+    y1: ductLay.ly - ductLay.bh / 2,
+    x2: ductLay.lx + ductLay.bw / 2,
+    y2: ductLay.ly + ductLay.bh / 2,
+  };
+  assert.equal(boxOverlap(pillBox, tipBox), 0);
 });

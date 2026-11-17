@@ -293,6 +293,35 @@ const BREAKER_SIZES=[40,50,60,75,100,125,150,175,200,225,250];
 const PIN_FACILITY_MAP={water:"waterMeterPin",supply:"waterSupplyPin",drain:"drainagePin",duct:"ductPin",gas:"gasEntryPin",heater:"gasHeaterPin"};
 const PIN_COLORS={water:"#0284c7",supply:"#0284c7",drain:"#0369a1",duct:"#0f766e",gas:"#dc2626",heater:"#ea580c",panel:"#d97706",hvac:"#0d9488",door:"#475569"};
 function pinColor(type){ return PIN_COLORS[type] || "#1e293b"; }
+const DUCT_DIRS=[
+  {deg:-90,sym:"↑",label:"위"},{deg:-45,sym:"↗",label:"오른쪽 위"},
+  {deg:0,sym:"→",label:"오른쪽"},{deg:45,sym:"↘",label:"오른쪽 아래"},
+  {deg:90,sym:"↓",label:"아래"},{deg:135,sym:"↙",label:"왼쪽 아래"},
+  {deg:180,sym:"←",label:"왼쪽"},{deg:-135,sym:"↖",label:"왼쪽 위"}
+];
+function angleToArrow(deg){
+  if(typeof deg!=='number' || isNaN(deg)) return '';
+  var idx=((Math.round(deg/45)%8)+8)%8;
+  return ['→','↘','↓','↙','←','↖','↑','↗'][idx];
+}
+function makeDuctArrowSvg(angle, col, hot, sizeCss, withHandle, mid, interactive){
+  var strokeCol = hot ? '#ff5a00' : (col || '#0f766e');
+  var ang = Number(angle) || 0;
+  var handleSvg = withHandle
+    ? '<circle cx="34" cy="0" r="6.5" fill="#fff" stroke="#2563eb" stroke-width="2.2"/><circle cx="34" cy="0" r="2.2" fill="#2563eb"/>'
+    : '';
+  return '<svg viewBox="-36 -36 72 72" style="width:'+sizeCss+';height:'+sizeCss+';display:block;pointer-events:'+(interactive?'auto':'none')+';overflow:visible">'
+    + '<g data-duct-arrow-g="'+(mid||'')+'" transform="rotate('+ang+')">'
+    + '<line x1="0" y1="0" x2="21" y2="0" stroke="rgba(255,255,255,0.92)" stroke-width="6.5" stroke-linecap="round"/>'
+    + '<polygon points="17,-8.5 31,0 17,8.5" fill="rgba(255,255,255,0.92)" stroke="rgba(255,255,255,0.92)" stroke-width="2" stroke-linejoin="round"/>'
+    + '<line x1="0" y1="0" x2="21" y2="0" stroke="'+strokeCol+'" stroke-width="3.2" stroke-linecap="round"/>'
+    + '<polygon points="18,-6.5 29,0 18,6.5" fill="'+strokeCol+'"/>'
+    + handleSvg
+    + '</g>'
+    + '<circle cx="0" cy="0" r="4.8" fill="'+strokeCol+'" stroke="#fff" stroke-width="2.2"/>'
+    + '<circle cx="0" cy="0" r="5.9" fill="none" stroke="rgba(15,23,42,0.35)" stroke-width="0.9"/>'
+    + '</svg>';
+}
 // 자주 쓰이는 매장 외곽 틀 — 꼭지점 + 추가로 일일이 꺾지 않고 1탭으로 시작한다.
 const SKETCH_PRESETS=[
   {id:"rect",label:"직사각형",pts:[{x:14,y:16},{x:86,y:16},{x:86,y:84},{x:14,y:84}]},
@@ -326,7 +355,7 @@ function sketchDisplaySrc(sk){
   if(sk.v===2 && sk.mode==='photo' && sk.bgPhoto) return sk.bgPhoto;
   return sk.drawing || '';
 }
-// 라벨 알약의 % 너비·높이 근사 — 한글(넓음)과 영문·공백·이모지를 구분해 밀집 충돌을 계산한다.
+// 라벨 알약의 % 너비·높이 근사 — 번호 칩 + 이모지 + 라벨(덕트 방향 화살표 포함) 너비를 함께 계산한다.
 function sketchLabelSizePct(item, opts){
   var aspect = (opts && opts.aspect > 0) ? opts.aspect : (4/3);
   var scale = (opts && opts.scale > 0) ? opts.scale : 1;
@@ -334,21 +363,31 @@ function sketchLabelSizePct(item, opts){
   var txtW = 0;
   for(var i=0; i<label.length; i++) txtW += (label.charCodeAt(i) > 127) ? 2.75 : 1.55;
   if(item && item.emoji) txtW += 3.3;
-  var bw = Math.max(8.5, Math.min(28, (txtW + 3.6) * scale));
-  var bh = Math.max(4.6, Math.min(9.5, 4.1 * aspect * scale));
+  if(item && item.no > 0) txtW += 4.6;
+  if(item && typeof item.angle === 'number') txtW += 2.8;
+  var bw = Math.max(9.5, Math.min(32, (txtW + 3.6) * scale));
+  var bh = Math.max(4.8, Math.min(9.8, 4.3 * aspect * scale));
   return {bw:bw, bh:bh};
 }
 // 2D 충돌 회피 라벨 배치기 + 지시선 좌표 계산 — 구석에 여러 설비·출입구가 몰려도 서로 겹치거나 잘리지 않는다.
 function sketchLayoutMarks(items, opts){
   var list = (items || []).map(function(m, idx){
     var sz = sketchLabelSizePct(m, opts);
-    return {idx:idx, ax:Number(m&&m.x)||0, ay:Number(m&&m.y)||0, bw:sz.bw, bh:sz.bh, m:m};
+    return {idx:idx, ax:Number(m&&m.x)||0, ay:Number(m&&m.y)||0, bw:sz.bw, bh:sz.bh, angle:(typeof (m&&m.angle)==='number'?m.angle:null), m:m};
   });
   var aspect = (opts && opts.aspect > 0) ? opts.aspect : (4/3);
   var scale = (opts && opts.scale > 0) ? opts.scale : 1;
-  var arX = 3.3 * scale, arY = 3.5 * aspect * scale;
-  var anchors = list.map(function(it){
-    return {x1:it.ax - arX, y1:it.ay - arY, x2:it.ax + arX, y2:it.ay + arY};
+  var arX = 2.5 * scale, arY = 2.6 * aspect * scale;
+  var anchors = [];
+  list.forEach(function(it){
+    anchors.push({x1:it.ax - arX, y1:it.ay - arY, x2:it.ax + arX, y2:it.ay + arY});
+    if(typeof it.angle === 'number'){
+      var rad = it.angle * Math.PI / 180;
+      [4.2, 7.6].forEach(function(r){
+        var tx = it.ax + Math.cos(rad) * r, ty = it.ay + Math.sin(rad) * r * aspect;
+        anchors.push({x1:tx - 2.3*scale, y1:ty - 2.3*aspect*scale, x2:tx + 2.3*scale, y2:ty + 2.3*aspect*scale});
+      });
+    }
   });
   // 가장자리·밀집 구역 항목을 먼저 배치해 바깥 핀이 안쪽 빈칸까지 빼앗지 않게 한다.
   var order = list.slice().sort(function(a, b){
@@ -498,8 +537,22 @@ function renderSketchAnnotations(container, items, opts){
     var callout = document.createElement('div');
     callout.setAttribute('data-sk-callout', '1');
     if(m.mid) callout.dataset.mid = m.mid;
-    callout.style.cssText = 'position:absolute;left:'+lay.lx+'%;top:'+lay.ly+'%;transform:translate(-50%,-50%);z-index:'+(hot?6:3)+';pointer-events:'+(erasing?'auto':'none')+';cursor:'+(erasing?'pointer':'default')+';white-space:nowrap;color:#0f172a;background:rgba(255,255,255,0.96);border:1px solid '+(hot?'#ff5a00':'rgba(15,23,42,0.22)')+';border-left:3px solid '+col+';border-radius:5px;padding:'+(isReport?'1px clamp(4px,1.2cqw,7px)':'1.5px 6px')+';font-size:'+(isReport?'clamp(8.5px, 2.25cqw, 12.5px)':'11px')+';font-weight:600;line-height:1.25;box-shadow:0 1px 3px rgba(15,23,42,0.14);opacity:'+(erasing?'0.78':'1');
-    callout.textContent = (m.emoji ? m.emoji + ' ' : '') + (m.label || '');
+    callout.style.cssText = 'position:absolute;left:'+lay.lx+'%;top:'+lay.ly+'%;transform:translate(-50%,-50%);z-index:'+(hot?6:3)+';pointer-events:'+(erasing?'auto':'none')+';cursor:'+(erasing?'pointer':'default')+';white-space:nowrap;color:#0f172a;background:rgba(255,255,255,0.97);border:1px solid '+(hot?'#ff5a00':'rgba(15,23,42,0.22)')+';'+(m.no?'':'border-left:3px solid '+col+';')+'border-radius:'+(m.no?'999px':'6px')+';padding:'+(isReport?(m.no?'1.5px clamp(5px,1.4cqw,8px) 1.5px 2px':'1.5px clamp(5px,1.3cqw,7px)'):(m.no?'2px 7px 2px 3px':'2px 7px'))+';font-size:'+(isReport?'clamp(8.5px, 2.25cqw, 12.5px)':'11px')+';font-weight:600;line-height:1.25;box-shadow:0 1.5px 4px rgba(15,23,42,0.16);opacity:'+(erasing?'0.78':'1');
+    var rowSpan = document.createElement('span');
+    rowSpan.style.cssText = 'display:inline-flex;align-items:center;gap:3.5px;vertical-align:middle';
+    if(m.no){
+      var badge = document.createElement('span');
+      var bSz = isReport ? 'clamp(13px, 3.3cqw, 17px)' : '15px';
+      var bFont = isReport ? 'clamp(8px, 2cqw, 10.5px)' : '9.5px';
+      badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:'+bSz+';height:'+bSz+';border-radius:50%;background:'+col+';color:#fff;font-size:'+bFont+';font-weight:700;flex:none';
+      badge.textContent = String(m.no);
+      rowSpan.appendChild(badge);
+    }
+    var txtSpan = document.createElement('span');
+    var arrowSuffix = (typeof m.angle === 'number') ? (' ' + angleToArrow(m.angle)) : '';
+    txtSpan.textContent = (m.emoji ? m.emoji + ' ' : '') + (m.label || '') + arrowSuffix;
+    rowSpan.appendChild(txtSpan);
+    callout.appendChild(rowSpan);
     if(erasing && typeof m.onErase === 'function') callout.onclick = function(ev){ ev.stopPropagation(); m.onErase(ev); };
     container.appendChild(callout);
 
@@ -507,19 +560,21 @@ function renderSketchAnnotations(container, items, opts){
     anchor.setAttribute('data-sk-mark', '1');
     if(m.mid) anchor.dataset.mid = m.mid;
     anchor.style.cssText = 'position:absolute;left:'+lay.ax+'%;top:'+lay.ay+'%;transform:translate(-50%,-50%);z-index:'+(hot?7:4)+';pointer-events:'+(erasing?'auto':'none')+';cursor:'+(erasing?'pointer':'default')+';opacity:'+(erasing?'0.78':'1')+';animation:'+(erasing?'shake .5s infinite':'none');
-    var dot = document.createElement('div');
-    if(m.no){
-      var dSz = isReport ? 'clamp(16px, 4.3cqw, 24px)' : '22px';
-      var fSz = isReport ? 'clamp(9px, 2.4cqw, 13px)' : '11px';
-      dot.style.cssText = 'width:'+dSz+';height:'+dSz+';border-radius:50%;background:'+col+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:'+fSz+';font-weight:700;box-shadow:0 0 0 1.5px #fff,0 1.5px 4px rgba(15,23,42,0.34);'+(hot?'outline:2px solid #ff5a00;outline-offset:1px;animation:skPulse 1.1s ease-out 2;':'');
-      dot.textContent = String(m.no);
+    if(m.type === 'duct' && typeof m.angle === 'number'){
+      var arrSz = isReport ? 'clamp(48px, 13cqw, 68px)' : '66px';
+      var withHandle = (!isReport && selectedId && m.mid === selectedId);
+      anchor.innerHTML = makeDuctArrowSvg(m.angle, col, hot, arrSz, withHandle, m.mid, erasing);
+    } else if(!m.no){
+      var doorDot = document.createElement('div');
+      var drSz = isReport ? 'clamp(12px, 3.1cqw, 15px)' : '13px';
+      doorDot.style.cssText = 'width:'+drSz+';height:'+drSz+';border-radius:3.5px;background:#78350f;border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.5),0 1.5px 4px rgba(0,0,0,0.3)'+(hot?';outline:2px solid #ff5a00;outline-offset:2px;animation:skPulse 1.1s ease-out 2':'');
+      anchor.appendChild(doorDot);
     } else {
-      var drSz = isReport ? 'clamp(18px, 4.6cqw, 26px)' : '24px';
-      var drF = isReport ? 'clamp(10px, 2.6cqw, 15px)' : '13px';
-      dot.style.cssText = 'width:'+drSz+';height:'+drSz+';border-radius:6px;background:rgba(255,255,255,0.97);border:1.5px solid '+(hot?'#ff5a00':'#475569')+';display:flex;align-items:center;justify-content:center;font-size:'+drF+';box-shadow:0 1.5px 4px rgba(15,23,42,0.28);'+(hot?'animation:skPulse 1.1s ease-out 2;':'');
-      dot.textContent = m.emoji || '🚪';
+      var dot = document.createElement('div');
+      var dSz = isReport ? 'clamp(11px, 2.8cqw, 14px)' : '12px';
+      dot.style.cssText = 'width:'+dSz+';height:'+dSz+';border-radius:50%;background:'+col+';border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.5),0 1.5px 4px rgba(0,0,0,0.3);'+(hot?'outline:2px solid #ff5a00;outline-offset:2px;animation:skPulse 1.1s ease-out 2;':'');
+      anchor.appendChild(dot);
     }
-    anchor.appendChild(dot);
     if(erasing && typeof m.onErase === 'function') anchor.onclick = function(ev){ ev.stopPropagation(); m.onErase(ev); };
     container.appendChild(anchor);
     return {halo:halo, line:line, callout:callout, anchor:anchor, lay:lay};
@@ -595,6 +650,7 @@ let sketchSelectedPin = "water";
 let sketchActionHistory = [];
 let sketchHighlightId = null;   // 목록에서 탭한 항목 — 도면에서 잠깐 강조
 let sketchSelectedMid = null;   // 도면에서 탭해 선택한 항목('pin-123' | 'door-456')
+let sketchSelectedDuctAngle = -90; // 새로 배치할 덕트 화살표 방향(기본 ↑)
 let sketchMigrating = false;    // 레거시 좌표 이관 진행 중(중복 이관 방지)
 
 // ==================== Image Compression ====================
@@ -2032,10 +2088,20 @@ function openSketchOverlay(pinKey, emoji, label){
     imgDiv.querySelectorAll('.ov-pin').forEach(e=>e.remove());
     const currentPin = data.facility[pinKey];
     if(currentPin){
+      if(pinKey==='ductPin' && typeof currentPin.angle!=='number') currentPin.angle = sketchSelectedDuctAngle;
       const pinEl = document.createElement('div');
       pinEl.className = 'ov-pin';
-      pinEl.style.cssText = `position:absolute;left:${currentPin.x}%;top:${currentPin.y}%;transform:translate(-50%,-50%);z-index:5;pointer-events:none;display:flex;flex-direction:column;align-items:center`;
-      pinEl.innerHTML = `<div style="width:28px;height:28px;border-radius:50%;background:${pinCol};color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 0 2px #fff,0 2px 8px rgba(0,0,0,0.45)">${emoji}</div><div style="margin-top:4px;font-size:11px;font-weight:700;color:#0f172a;background:rgba(255,255,255,0.96);padding:1px 6px;border-radius:4px;border:1px solid rgba(15,23,42,0.2);border-left:3px solid ${pinCol};white-space:nowrap">${label}</div>`;
+      pinEl.style.cssText = `position:absolute;left:${currentPin.x}%;top:${currentPin.y}%;transform:translate(-50%,-50%);z-index:5;pointer-events:none`;
+      if(pinKey==='ductPin' && typeof currentPin.angle==='number'){
+        pinEl.innerHTML = makeDuctArrowSvg(currentPin.angle, pinCol, false, '66px', false, '');
+      } else {
+        pinEl.innerHTML = `<div style="width:14px;height:14px;border-radius:50%;background:${pinCol};border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.5),0 2px 6px rgba(0,0,0,0.45)"></div>`;
+      }
+      const tag = document.createElement('div');
+      const dyTag = (currentPin.y > 82) ? '-26px' : '16px';
+      tag.style.cssText = `position:absolute;left:50%;top:${dyTag};transform:translateX(-50%);font-size:11px;font-weight:700;color:#0f172a;background:rgba(255,255,255,0.97);padding:2px 7px;border-radius:999px;border:1px solid rgba(15,23,42,0.22);white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.28)`;
+      tag.textContent = emoji + ' ' + label + (pinKey==='ductPin' && typeof currentPin.angle==='number' ? ' ' + angleToArrow(currentPin.angle) : '');
+      pinEl.appendChild(tag);
       imgDiv.appendChild(pinEl);
     }
 
@@ -2044,11 +2110,33 @@ function openSketchOverlay(pinKey, emoji, label){
     if(data.facility[pinKey]){
       const btns = document.createElement('div');
       btns.className = 'ov-btns';
-      btns.style.cssText = 'padding:16px;display:flex;gap:10px;justify-content:center';
-      btns.innerHTML = `<button id="skOvDel" style="padding:10px 20px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;font-size:14px;cursor:pointer">삭제</button><button id="skOvOk" style="padding:10px 24px;border-radius:8px;border:none;background:#fff;color:#0f172a;font-size:14px;cursor:pointer;font-weight:600">확인</button>`;
+      btns.style.cssText = 'padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;align-items:center';
+      if(pinKey==='ductPin'){
+        const dirWrap = document.createElement('div');
+        dirWrap.style.cssText = 'display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center';
+        dirWrap.innerHTML = `<span style="color:#cbd5e1;font-size:12px;margin-right:2px">화살표 방향</span>`;
+        DUCT_DIRS.forEach(d=>{
+          const curA = typeof data.facility.ductPin.angle==='number' ? data.facility.ductPin.angle : -90;
+          const active = Math.abs((((d.deg - curA) % 360) + 540) % 360 - 180) <= 22.5;
+          const dBtn = document.createElement('button');
+          dBtn.style.cssText = `width:32px;height:32px;border-radius:7px;border:1px solid ${active?'#10b981':'#475569'};background:${active?'#0f766e':'rgba(255,255,255,0.08)'};color:#fff;font-size:15px;font-weight:700;cursor:pointer`;
+          dBtn.textContent = d.sym;
+          dBtn.onclick = () => {
+            data.facility.ductPin.angle = d.deg;
+            sketchSelectedDuctAngle = d.deg;
+            renderPin();
+          };
+          dirWrap.appendChild(dBtn);
+        });
+        btns.appendChild(dirWrap);
+      }
+      const actRow = document.createElement('div');
+      actRow.style.cssText = 'display:flex;gap:10px;justify-content:center';
+      actRow.innerHTML = `<button id="skOvDel" style="padding:10px 20px;border-radius:8px;border:1px solid #64748b;background:transparent;color:#cbd5e1;font-size:14px;cursor:pointer">삭제</button><button id="skOvOk" style="padding:10px 24px;border-radius:8px;border:none;background:#fff;color:#0f172a;font-size:14px;cursor:pointer;font-weight:600">확인</button>`;
+      btns.appendChild(actRow);
       overlay.appendChild(btns);
-      btns.querySelector('#skOvDel').onclick = () => { data.facility[pinKey]=null; renderPin(); };
-      btns.querySelector('#skOvOk').onclick = closeOv;
+      actRow.querySelector('#skOvDel').onclick = () => { data.facility[pinKey]=null; renderPin(); };
+      actRow.querySelector('#skOvOk').onclick = closeOv;
     }
   };
 
@@ -2069,7 +2157,8 @@ function openSketchOverlay(pinKey, emoji, label){
     const cy = e.touches && e.touches[0] ? e.touches[0].clientY : e.clientY;
     const xP = Math.max(0, Math.min(100, ((cx - rect.left)/rect.width)*100));
     const yP = Math.max(0, Math.min(100, ((cy - rect.top)/rect.height)*100));
-    data.facility[pinKey] = {x:xP,y:yP};
+    const prevAngle = data.facility[pinKey] && typeof data.facility[pinKey].angle==='number' ? data.facility[pinKey].angle : sketchSelectedDuctAngle;
+    data.facility[pinKey] = pinKey==='ductPin' ? {x:xP,y:yP,angle:prevAngle} : {x:xP,y:yP};
     renderPin();
   };
   imgDiv.addEventListener('mousedown', e=>{ ovDragging=true; setFromEv(e); });
@@ -2660,13 +2749,26 @@ function renderStepSketch(wrap){
         g.innerHTML='<div style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:42px;height:42px;pointer-events:none">'
           + '<div style="position:absolute;left:50%;top:0;bottom:0;border-left:1.5px dashed rgba(37,99,235,0.75)"></div>'
           + '<div style="position:absolute;top:50%;left:0;right:0;border-top:1.5px dashed rgba(37,99,235,0.75)"></div>'
-          + '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;border-radius:50%;background:'+gCol+';box-shadow:0 0 0 2px #fff"></div>'
+          + ((((sess.ref && sess.ref.type==='duct') || (!sess.ref && sess.kind==='pin' && sess.pinType==='duct')))
+            ? ('<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)">' + makeDuctArrowSvg(sess.ref && typeof sess.ref.angle==='number' ? sess.ref.angle : sketchSelectedDuctAngle, gCol, false, '62px', false, '') + '</div>')
+            : '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:'+gCol+';border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.45)"></div>')
           + '</div>'
-          + '<div style="position:absolute;left:0;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.97);color:#0f172a;padding:3px 8px;border-radius:6px;border:1px solid rgba(15,23,42,0.25);border-left:3px solid '+gCol+';font-size:11px;font-weight:700;white-space:nowrap">'
-          + gEmoji+' '+gLabel+'</div>';
+          + '<div style="position:absolute;left:0;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.97);color:#0f172a;padding:3px 8px;border-radius:999px;border:1px solid rgba(15,23,42,0.25);border-left:3px solid '+gCol+';font-size:11px;font-weight:700;white-space:nowrap">'
+          + gEmoji+' '+gLabel+((((sess.ref && sess.ref.type==='duct') || (!sess.ref && sess.kind==='pin' && sess.pinType==='duct')))?' '+angleToArrow(sess.ref && typeof sess.ref.angle==='number' ? sess.ref.angle : sketchSelectedDuctAngle):'')+'</div>';
         return g;
       };
       var moveGhost=function(g,pos){ g.style.left=pos.x+'px'; g.style.top=pos.y+'px'; };
+
+      var hitRotateKnob=function(pos,rect){
+        if(!sketchSelectedMid || !sketchSelectedMid.startsWith('pin-')) return null;
+        var sid=sketchSelectedMid.slice(4);
+        var pn=(d2.pins||[]).find(function(o){return String(o.id)===sid && o.type==='duct' && typeof o.angle==='number';});
+        if(!pn) return null;
+        var rad=pn.angle*Math.PI/180;
+        var kx=pn.x/100*rect.width + Math.cos(rad)*32;
+        var ky=pn.y/100*rect.height + Math.sin(rad)*32;
+        return Math.hypot(pos.x-kx, pos.y-ky) < 20 ? pn : null;
+      };
 
       var onDown = function(e){
         if(e.touches && e.touches.length>1){ onCancel(); return; }
@@ -2685,6 +2787,12 @@ function renderStepSketch(wrap){
         }
         if(sketchTool==='pin' || sketchTool==='door'){
           var rect=canvas.getBoundingClientRect();
+          var rotPn=hitRotateKnob(pos,rect);
+          if(rotPn){
+            mkDrag={mode:'rotate',id:rotPn.id,ref:rotPn,prevAngle:rotPn.angle,curAngle:rotPn.angle,rect:rect};
+            e.preventDefault();
+            return;
+          }
           var hit=hitMarker(pos,rect);
           if(hit){
             mkDrag={mode:'move',kind:hit.kind,id:hit.id,ref:hit.ref,prevX:hit.ref.x,prevY:hit.ref.y,x0:pos.x,y0:pos.y,moved:false,rect:rect};
@@ -2711,6 +2819,16 @@ function renderStepSketch(wrap){
         if(mkDrag){
           e.preventDefault();
           var mpos=getXY(e);
+          if(mkDrag.mode==='rotate'){
+            var axPx=mkDrag.ref.x/100*mkDrag.rect.width, ayPx=mkDrag.ref.y/100*mkDrag.rect.height;
+            var rawDeg=Math.atan2(mpos.y-ayPx, mpos.x-axPx)*180/Math.PI;
+            var near45=Math.round(rawDeg/45)*45;
+            var deg=Math.abs(rawDeg-near45)<6 ? near45 : Math.round(rawDeg);
+            mkDrag.curAngle=deg;
+            var gEl=canvasWrap.querySelector('[data-duct-arrow-g="pin-'+mkDrag.id+'"]');
+            if(gEl) gEl.setAttribute('transform','rotate('+deg+')');
+            return;
+          }
           if(!mkDrag.moved){
             var dx=mpos.x-mkDrag.x0, dy=mpos.y-mkDrag.y0;
             if(dx*dx+dy*dy > MOVE_THRESH*MOVE_THRESH){
@@ -2763,6 +2881,18 @@ function renderStepSketch(wrap){
           var rect=mkDrag.rect || canvas.getBoundingClientRect();
           var sess=mkDrag; mkDrag=null;
           if(ghostEl){ ghostEl.remove(); ghostEl=null; }
+          if(sess.mode==='rotate'){
+            var rp=sess.ref;
+            if(typeof sess.curAngle==='number' && sess.curAngle!==sess.prevAngle){
+              sketchActionHistory.push({type:'rotatePin',id:sess.id,data:sess.prevAngle});
+              rp.angle=sess.curAngle;
+              sketchSelectedDuctAngle=rp.angle;
+              var fkR=PIN_FACILITY_MAP[rp.type];
+              if(fkR) data.facility[fkR]={x:rp.x,y:rp.y,angle:rp.angle};
+              if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
+            }
+            render(); return;
+          }
           if(sess.mode==='place'){
             var xP=Math.max(1.5,Math.min(98.5,(pos.x/rect.width)*100));
             var yP=Math.max(1.5,Math.min(98.5,(pos.y/rect.height)*100));
@@ -2773,14 +2903,18 @@ function renderStepSketch(wrap){
               var did=nextSkId;
               d2.doors=[].concat(d2.doors||[],[{id:did,x:xP,y:yP}]);
               sketchActionHistory.push({type:'addDoor',id:did});
+              sketchSelectedMid=null;
             } else {
               var pid=nextSkId;
-              d2.pins=[].concat(d2.pins||[],[{id:pid,type:sess.pinType,x:xP,y:yP,note:''}]);
+              var newPin = sess.pinType==='duct'
+                ? {id:pid,type:sess.pinType,x:xP,y:yP,angle:sketchSelectedDuctAngle,note:''}
+                : {id:pid,type:sess.pinType,x:xP,y:yP,note:''};
+              d2.pins=[].concat(d2.pins||[],[newPin]);
               var fkA=PIN_FACILITY_MAP[sess.pinType];
-              if(fkA) data.facility[fkA]={x:xP,y:yP};
+              if(fkA) data.facility[fkA]=sess.pinType==='duct'?{x:xP,y:yP,angle:sketchSelectedDuctAngle}:{x:xP,y:yP};
               sketchActionHistory.push({type:'addPin',id:pid,pinType:sess.pinType});
+              sketchSelectedMid = (sess.pinType==='duct') ? ('pin-'+pid) : null;
             }
-            sketchSelectedMid=null;
             if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
             render(); return;
           }
@@ -2798,7 +2932,7 @@ function renderStepSketch(wrap){
               if(dr2){ sketchActionHistory.push({type:'moveDoor',id:sess.id,data:{x:sess.prevX,y:sess.prevY}}); dr2.x=mxP; dr2.y=myP; }
             } else {
               var pn=(d2.pins||[]).find(function(o){return o.id===sess.id;});
-              if(pn){ sketchActionHistory.push({type:'movePin',id:sess.id,data:{x:sess.prevX,y:sess.prevY}}); pn.x=mxP; pn.y=myP; var fkB=PIN_FACILITY_MAP[pn.type]; if(fkB) data.facility[fkB]={x:mxP,y:myP}; }
+              if(pn){ sketchActionHistory.push({type:'movePin',id:sess.id,data:{x:sess.prevX,y:sess.prevY}}); pn.x=mxP; pn.y=myP; var fkB=PIN_FACILITY_MAP[pn.type]; if(fkB) data.facility[fkB]=(typeof pn.angle==='number'?{x:mxP,y:myP,angle:pn.angle}:{x:mxP,y:myP}); }
             }
             if(d2.drawing&&!d2.drawing.startsWith('data:')) d2.drawing=null;
             render(); return;
@@ -2837,7 +2971,7 @@ function renderStepSketch(wrap){
         }),
         (d2.pins||[]).map(function(pin,pi){
           var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
-          return {mid:'pin-'+pin.id, x:Number(pin.x)||0, y:Number(pin.y)||0, emoji:(pt?pt.emoji:''), label:(pt?pt.label:''), no:pi+1, type:pin.type, color:pinColor(pin.type),
+          return {mid:'pin-'+pin.id, x:Number(pin.x)||0, y:Number(pin.y)||0, emoji:(pt?pt.emoji:''), label:(pt?pt.label:''), no:pi+1, type:pin.type, angle:(typeof pin.angle==='number'?pin.angle:undefined), color:pinColor(pin.type),
             onErase:function(){ if(d2.drawing&&!d2.drawing.startsWith('data:'))d2.drawing=null; var fk=PIN_FACILITY_MAP[pin.type]; if(fk)data.facility[fk]=null; d2.pins=d2.pins.filter(function(p){return p.id!==pin.id;}); if(sketchSelectedMid==='pin-'+pin.id)sketchSelectedMid=null; sketchActionHistory.push({type:'erasePin',data:pin,pinType:pin.type}); render(); }};
         })
       );
@@ -2855,9 +2989,10 @@ function renderStepSketch(wrap){
       if(selPin || selDoor){
         const ptSel = selPin ? PIN_TYPES.find(p=>p.id===selPin.type) : null;
         const sCol = selPin ? pinColor(selPin.type) : pinColor('door');
-        const qBar = h('div',{style:{display:'flex',alignItems:'center',gap:'8px',padding:'8px 10px',marginBottom:'10px',borderRadius:'10px',background:T.cardBg,border:'1.5px solid #ff5a00',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}});
-        qBar.appendChild(h('span',{style:{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',width:'22px',height:'22px',borderRadius:'50%',background:sCol,color:'#fff',fontSize:'11px',fontWeight:'700'}}, selPin ? String(selPinIdx+1) : '🚪'));
-        qBar.appendChild(h('span',{style:{flex:'none',fontSize:'13px',color:T.text,fontWeight:'700',whiteSpace:'nowrap'}}, selPin ? ((ptSel?ptSel.emoji+' ':'')+(ptSel?ptSel.label:'')) : '🚪 출입구'));
+        const qBar = h('div',{style:{display:'flex',flexDirection:'column',gap:'8px',padding:'8px 10px',marginBottom:'10px',borderRadius:'10px',background:T.cardBg,border:'1.5px solid #ff5a00',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}});
+        const qTop = h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+        qTop.appendChild(h('span',{style:{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',width:'22px',height:'22px',borderRadius:'50%',background:sCol,color:'#fff',fontSize:'11px',fontWeight:'700'}}, selPin ? String(selPinIdx+1) : '🚪'));
+        qTop.appendChild(h('span',{style:{flex:'none',fontSize:'13px',color:T.text,fontWeight:'700',whiteSpace:'nowrap'}}, selPin ? ((ptSel?ptSel.emoji+' ':'')+(ptSel?ptSel.label:'')) : '🚪 출입구'));
         if(selPin){
           const qInp = h('input',{type:'text',style:{...inputStyle(),flex:'1',minWidth:'0',fontSize:'13px',padding:'6px 8px',borderRadius:'7px'},placeholder:'메모 (예: 75A 바닥배수)'});
           qInp.value = selPin.note || '';
@@ -2866,9 +3001,9 @@ function renderStepSketch(wrap){
             const listInp = wrap.querySelector('[data-note-mid="pin-'+selPin.id+'"]');
             if(listInp) listInp.value = selPin.note;
           };
-          qBar.appendChild(qInp);
+          qTop.appendChild(qInp);
         } else {
-          qBar.appendChild(h('span',{style:{flex:'1',fontSize:'12px',color:T.text5}},'드래그로 위치 조정'));
+          qTop.appendChild(h('span',{style:{flex:'1',fontSize:'12px',color:T.text5}},'드래그로 위치 조정'));
         }
         const qDel = h('button',{style:{flex:'none',padding:'6px 10px',borderRadius:'7px',border:`1px solid ${T.danger}`,background:'transparent',color:T.danger,fontSize:'12px',fontWeight:'600',cursor:'pointer'}},'삭제');
         qDel.onclick = () => {
@@ -2883,10 +3018,31 @@ function renderStepSketch(wrap){
           }
           sketchSelectedMid=null; sketchHighlightId=null; render();
         };
-        qBar.appendChild(qDel);
+        qTop.appendChild(qDel);
         const qClose = h('button',{style:{flex:'none',width:'26px',height:'26px',borderRadius:'6px',border:'none',background:T.bg4,color:T.text2,fontSize:'12px',cursor:'pointer'}},'✕');
         qClose.onclick = () => { sketchSelectedMid=null; sketchHighlightId=null; render(); };
-        qBar.appendChild(qClose);
+        qTop.appendChild(qClose);
+        qBar.appendChild(qTop);
+        if(selPin && selPin.type==='duct'){
+          const dRow = h('div',{style:{display:'flex',alignItems:'center',gap:'5px',flexWrap:'nowrap',overflowX:'auto',paddingTop:'6px',borderTop:`1px solid ${T.border2}`}});
+          dRow.appendChild(h('span',{style:{flex:'none',fontSize:'11.5px',color:T.text2,fontWeight:'600',marginRight:'2px'}},'방향'));
+          DUCT_DIRS.forEach(dd=>{
+            const curAng = typeof selPin.angle==='number' ? selPin.angle : -90;
+            const isAct = typeof selPin.angle==='number' && Math.abs((((dd.deg - curAng) % 360) + 540) % 360 - 180) <= 22.5;
+            const dBtn = h('button',{style:{flex:'none',width:'30px',height:'28px',borderRadius:'7px',border:isAct?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:isAct?'#0f766e':T.chipInactive,color:isAct?'#fff':T.text,fontSize:'14px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
+            dBtn.onclick = () => {
+              sketchActionHistory.push({type:'rotatePin',id:selPin.id,data:selPin.angle});
+              selPin.angle = dd.deg;
+              sketchSelectedDuctAngle = dd.deg;
+              const fkD=PIN_FACILITY_MAP[selPin.type];
+              if(fkD) data.facility[fkD]={x:selPin.x,y:selPin.y,angle:dd.deg};
+              invalidateSketchImage();
+              render();
+            };
+            dRow.appendChild(dBtn);
+          });
+          qBar.appendChild(dRow);
+        }
         wrap.appendChild(qBar);
       } else {
         sketchSelectedMid = null;
@@ -2924,9 +3080,10 @@ function renderStepSketch(wrap){
       else if(last.type==='addDoor') d2.doors=(d2.doors||[]).filter(dr=>dr.id!==last.id);
       else if(last.type==='addPin'){d2.pins=(d2.pins||[]).filter(p=>p.id!==last.id);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]=null;}
       else if(last.type==='eraseDoor') d2.doors=[].concat(d2.doors||[],[last.data]);
-      else if(last.type==='erasePin'){d2.pins=[].concat(d2.pins||[],[last.data]);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]={x:last.data.x,y:last.data.y};}
+      else if(last.type==='erasePin'){d2.pins=[].concat(d2.pins||[],[last.data]);const fk=PIN_FACILITY_MAP[last.pinType];if(fk)data.facility[fk]=(typeof last.data.angle==='number'?{x:last.data.x,y:last.data.y,angle:last.data.angle}:{x:last.data.x,y:last.data.y});}
       else if(last.type==='moveDoor'){const dr=(d2.doors||[]).find(o=>o.id===last.id);if(dr){dr.x=last.data.x;dr.y=last.data.y;}}
-      else if(last.type==='movePin'){const pn=(d2.pins||[]).find(o=>o.id===last.id);if(pn){pn.x=last.data.x;pn.y=last.data.y;const fk=PIN_FACILITY_MAP[pn.type];if(fk)data.facility[fk]={x:pn.x,y:pn.y};}}
+      else if(last.type==='movePin'){const pn=(d2.pins||[]).find(o=>o.id===last.id);if(pn){pn.x=last.data.x;pn.y=last.data.y;const fk=PIN_FACILITY_MAP[pn.type];if(fk)data.facility[fk]=(typeof pn.angle==='number'?{x:pn.x,y:pn.y,angle:pn.angle}:{x:pn.x,y:pn.y});}}
+      else if(last.type==='rotatePin'){const pn=(d2.pins||[]).find(o=>o.id===last.id);if(pn){if(typeof last.data==='number')pn.angle=last.data;else delete pn.angle;const fk=PIN_FACILITY_MAP[pn.type];if(fk)data.facility[fk]=(typeof pn.angle==='number'?{x:pn.x,y:pn.y,angle:pn.angle}:{x:pn.x,y:pn.y});}}
       sketchSelectedMid=null;
       render();
     };
@@ -2980,6 +3137,18 @@ function renderStepSketch(wrap){
         pinChips.appendChild(btn);
       });
       pinSel.appendChild(pinChips);
+      const editingDuct = !!(sketchSelectedMid && sketchSelectedMid.startsWith('pin-') && (d2.pins||[]).some(p=>'pin-'+p.id===sketchSelectedMid && p.type==='duct'));
+      if(sketchSelectedPin==='duct' && !editingDuct){
+        const dDock = h('div',{style:{display:'flex',alignItems:'center',gap:'5px',marginTop:'8px',flexWrap:'nowrap',overflowX:'auto',paddingBottom:'2px'}});
+        dDock.appendChild(h('span',{style:{flex:'none',fontSize:'11.5px',color:T.text2,fontWeight:'600'}},'화살표 방향'));
+        DUCT_DIRS.forEach(dd=>{
+          const act = Math.abs((((dd.deg - sketchSelectedDuctAngle) % 360) + 540) % 360 - 180) <= 22.5;
+          const db = h('button',{style:{flex:'none',width:'30px',height:'28px',borderRadius:'7px',border:act?'1.5px solid #0f766e':`1px solid ${T.chipBorder}`,background:act?'#0f766e':T.chipInactive,color:act?'#fff':T.text2,fontSize:'14px',fontWeight:'700',cursor:'pointer'}}, dd.sym);
+          db.onclick = () => { sketchSelectedDuctAngle = dd.deg; render(); };
+          dDock.appendChild(db);
+        });
+        pinSel.appendChild(dDock);
+      }
       dock.appendChild(pinSel);
     }
 
@@ -3005,7 +3174,7 @@ function renderStepSketch(wrap){
         row.onclick=(ev)=>{ if(ev.target.tagName!=='INPUT' && ev.target.tagName!=='BUTTON') flash(mid); };
         row.appendChild(numChip(String(pi+1), pinColor(pin.type)));
         row.appendChild(h('span',{style:{flex:'none',fontSize:'18px'}},pt?.emoji||''));
-        row.appendChild(h('span',{style:{flex:'none',fontSize:'13px',color:T.text,fontWeight:'600'}},pt?.label||''));
+        row.appendChild(h('span',{style:{flex:'none',fontSize:'13px',color:T.text,fontWeight:'600'}},(pt?.label||'')+(pin.type==='duct'&&typeof pin.angle==='number'?' '+angleToArrow(pin.angle):'')));
         const inp = h('input',{type:'text','data-note-mid':mid,style:{...inputStyle(),flex:'1',minWidth:'0',fontSize:'13px',padding:'6px 10px',border:'none',background:'transparent'},placeholder:'메모(선택)'});
         inp.value=pin.note||'';
         inp.oninput=e=>{pin.note=e.target.value;};
@@ -3585,9 +3754,9 @@ function renderReport(){
     const marks = [].concat(
       (data.sketch.pins||[]).map(function(pin){
         var pt=PIN_TYPES.find(function(p){return p.id===pin.type;});
-        return {x:Number(pin.x)||0, y:Number(pin.y)||0, type:pin.type, emoji:(pt?pt.emoji:''), label:(pt?pt.label:''), note:pin.note||''};
+        return {x:Number(pin.x)||0, y:Number(pin.y)||0, type:pin.type, angle:(typeof pin.angle==='number'?pin.angle:undefined), emoji:(pt?pt.emoji:''), label:(pt?pt.label:''), note:pin.note||''};
       }),
-      facPins.map(function(fp){ return {x:Number(fp.pin.x)||0, y:Number(fp.pin.y)||0, type:fp.type, emoji:fp.emoji, label:fp.label, note:''}; })
+      facPins.map(function(fp){ return {x:Number(fp.pin.x)||0, y:Number(fp.pin.y)||0, type:fp.type, angle:(typeof fp.pin.angle==='number'?fp.pin.angle:undefined), emoji:fp.emoji, label:fp.label, note:''}; })
     ).map(function(m,i){ m.no=i+1; return m; });
 
     var hasVectorPoly = data.sketch.mode!=='photo' && Array.isArray(data.sketch.polygon) && data.sketch.polygon.length>=3;
@@ -3609,7 +3778,7 @@ function renderReport(){
 
       var annItems = [].concat(
         (data.sketch.doors||[]).map(function(dr,di){ return {mid:'door-'+dr.id+'-'+di, x:Number(dr.x)||0, y:Number(dr.y)||0, type:'door', emoji:'🚪', label:'출입구', no:0, color:pinColor('door')}; }),
-        marks.map(function(m){ return {mid:'pin-'+m.no, x:m.x, y:m.y, type:m.type, emoji:m.emoji, label:m.label, no:m.no, color:pinColor(m.type)}; })
+        marks.map(function(m){ return {mid:'pin-'+m.no, x:m.x, y:m.y, type:m.type, angle:m.angle, emoji:m.emoji, label:m.label, no:m.no, color:pinColor(m.type)}; })
       );
       var annCtrl = renderSketchAnnotations(imgWrap, annItems, {report:true, aspect:4/3});
       var capSheet = function(){
@@ -3651,8 +3820,9 @@ function renderReport(){
         row.appendChild(h('span',{style:{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',
           width:'18px',height:'18px',borderRadius:'50%',background:pinColor(m.type),color:'#fff',
           fontSize:'11px',fontWeight:'700',marginTop:'2px'}}, String(m.no)));
+        var arrTxt = (typeof m.angle==='number') ? (' (' + angleToArrow(m.angle) + ')') : '';
         row.appendChild(h('span',{style:{flex:'1',minWidth:'0'}},
-          (m.emoji?m.emoji+' ':'') + m.label + (m.note ? ' — ' + m.note : '')));
+          (m.emoji?m.emoji+' ':'') + m.label + arrTxt + (m.note ? ' — ' + m.note : '')));
         legend.appendChild(row);
       });
       skSec.appendChild(legend);
