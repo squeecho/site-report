@@ -1,3 +1,6 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
 // HTML 속성/텍스트 컨텍스트용 이스케이프
 function escapeHtml(s) {
   return String(s == null ? '' : s)
@@ -6,6 +9,68 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+let cachedIndexHtml = null;
+function loadIndexHtml() {
+  if (cachedIndexHtml !== null) return cachedIndexHtml;
+  const candidates = [
+    path.join(__dirname, '..', 'index.html'),
+    path.join(process.cwd(), 'index.html'),
+  ];
+  for (const p of candidates) {
+    try {
+      cachedIndexHtml = fs.readFileSync(p, 'utf8');
+      return cachedIndexHtml;
+    } catch {
+      // try next path
+    }
+  }
+  return '';
+}
+
+function renderReportHtml({ baseHtml, id, title, host }) {
+  const desc = '이견공간 실측보고서(basic)';
+  const ogImage = 'https://' + host + '/og-image.png';
+  const pageUrl = 'https://' + host + '/report/' + id;
+
+  const titleEsc = escapeHtml(title);
+  const descEsc = escapeHtml(desc);
+  const ogImageEsc = escapeHtml(ogImage);
+  const pageUrlEsc = escapeHtml(pageUrl);
+
+  if (baseHtml) {
+    return baseHtml
+      .replace(/<title>[\s\S]*?<\/title>/i, () => `<title>${titleEsc} | 이견공간 실측보고서</title>`)
+      .replace(/<meta\s+property="og:title"\s+content="[^"]*">/i, () => `<meta property="og:title" content="${titleEsc}">`)
+      .replace(/<meta\s+property="og:description"\s+content="[^"]*">/i, () => `<meta property="og:description" content="${descEsc}">`)
+      .replace(/<meta\s+property="og:image"\s+content="[^"]*">/i, () => `<meta property="og:image" content="${ogImageEsc}">`)
+      .replace(
+        /<meta\s+property="og:type"\s+content="website">/i,
+        () => `<meta property="og:type" content="website">\n<meta property="og:url" content="${pageUrlEsc}">`
+      )
+      .replace(/<meta\s+name="twitter:title"\s+content="[^"]*">/i, () => `<meta name="twitter:title" content="${titleEsc}">`)
+      .replace(/<meta\s+name="twitter:description"\s+content="[^"]*">/i, () => `<meta name="twitter:description" content="${descEsc}">`)
+      .replace(/<meta\s+name="twitter:image"\s+content="[^"]*">/i, () => `<meta name="twitter:image" content="${ogImageEsc}">`);
+  }
+
+  return (
+    '<!DOCTYPE html>' +
+    '<html lang="ko"><head><meta charset="UTF-8">' +
+    '<meta property="og:title" content="' + titleEsc + '">' +
+    '<meta property="og:description" content="' + descEsc + '">' +
+    '<meta property="og:image" content="' + ogImageEsc + '">' +
+    '<meta property="og:image:width" content="1200">' +
+    '<meta property="og:image:height" content="630">' +
+    '<meta property="og:type" content="website">' +
+    '<meta property="og:url" content="' + pageUrlEsc + '">' +
+    '<meta name="twitter:card" content="summary_large_image">' +
+    '<meta name="twitter:title" content="' + titleEsc + '">' +
+    '<meta name="twitter:description" content="' + descEsc + '">' +
+    '<meta name="twitter:image" content="' + ogImageEsc + '">' +
+    '<title>' + titleEsc + ' | 이견공간 실측보고서</title>' +
+    '</head><body><div id="app"></div></body></html>'
+  );
 }
 
 module.exports = async function handler(req, res) {
@@ -47,37 +112,17 @@ module.exports = async function handler(req, res) {
   }
 
   const title = siteName || '실측보고서';
-  const host = req.headers.host || 'site-report-smoky.vercel.app';
-  const ogImage = 'https://' + host + '/og-image.png';
-  const redirectUrl = 'https://' + host + '/?id=' + id;
-
-  // 모든 동적 값은 출력 컨텍스트에 맞게 이스케이프 (id는 위에서 형식 검증 완료)
-  const titleEsc = escapeHtml(title);
-  const hostEsc = escapeHtml(host);
-  const ogImageEsc = escapeHtml(ogImage);
-  const redirectUrlEsc = escapeHtml(redirectUrl);
-  const redirectUrlJs = JSON.stringify(redirectUrl).replace(/</g, '\\u003c');
+  const host = req.headers.host || 'survey.igggstudio.com';
+  const html = renderReportHtml({
+    baseHtml: loadIndexHtml(),
+    id,
+    title,
+    host,
+  });
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-store');
-  res.status(200).send(
-    '<!DOCTYPE html>' +
-    '<html lang="ko"><head><meta charset="UTF-8">' +
-    '<meta property="og:title" content="' + titleEsc + '">' +
-    '<meta property="og:description" content="이견공간 실측보고서(basic)">' +
-    '<meta property="og:image" content="' + ogImageEsc + '">' +
-    '<meta property="og:image:width" content="1200">' +
-    '<meta property="og:image:height" content="630">' +
-    '<meta property="og:type" content="website">' +
-    '<meta property="og:url" content="https://' + hostEsc + '/report/' + id + '">' +
-    '<meta name="twitter:card" content="summary_large_image">' +
-    '<meta name="twitter:title" content="' + titleEsc + '">' +
-    '<meta name="twitter:description" content="이견공간 실측보고서(basic)">' +
-    '<meta name="twitter:image" content="' + ogImageEsc + '">' +
-    '<title>' + titleEsc + ' | 이견공간 실측보고서</title>' +
-    '<meta http-equiv="refresh" content="0;url=' + redirectUrlEsc + '">' +
-    '</head><body>' +
-    '<script>window.location.href=' + redirectUrlJs + ';</script>' +
-    '</body></html>'
-  );
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  res.status(200).send(html);
 };
+
+module.exports._renderReportHtml = renderReportHtml;
